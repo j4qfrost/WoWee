@@ -1580,9 +1580,9 @@ int CharacterRenderer::findKeyframeIndex(const std::vector<uint32_t>& timestamps
     if (timestamps.empty()) return -1;
     if (timestamps.size() == 1) return 0;
 
-    // Binary search: find first element > t, then back up one
-    uint32_t t = static_cast<uint32_t>(time);
-    auto it = std::upper_bound(timestamps.begin(), timestamps.end(), t);
+    // Binary search using float comparison to match original semantics exactly
+    auto it = std::upper_bound(timestamps.begin(), timestamps.end(), time,
+        [](float t, uint32_t ts) { return t < static_cast<float>(ts); });
     if (it == timestamps.begin()) return 0;
     size_t idx = static_cast<size_t>(it - timestamps.begin()) - 1;
     return static_cast<int>(std::min(idx, timestamps.size() - 2));

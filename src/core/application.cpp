@@ -4790,6 +4790,77 @@ void Application::spawnOnlineCreature(uint64_t guid, uint32_t displayId, float x
         return;
     }
 
+    // Per-instance hair/skin texture overrides — runs for ALL NPCs (including cached models)
+    // so that each NPC gets its own hair/skin color regardless of model sharing.
+    {
+        auto itDD = displayDataMap_.find(displayId);
+        if (itDD != displayDataMap_.end() && itDD->second.extraDisplayId != 0) {
+            auto itExtra2 = humanoidExtraMap_.find(itDD->second.extraDisplayId);
+            if (itExtra2 != humanoidExtraMap_.end()) {
+                const auto& extra = itExtra2->second;
+                const auto* md = charRenderer->getModelData(modelId);
+                if (md) {
+                    auto charSectionsDbc2 = assetManager->loadDBC("CharSections.dbc");
+                    if (charSectionsDbc2) {
+                        const auto* csL = pipeline::getActiveDBCLayout()
+                            ? pipeline::getActiveDBCLayout()->getLayout("CharSections") : nullptr;
+                        uint32_t tgtRace = static_cast<uint32_t>(extra.raceId);
+                        uint32_t tgtSex = static_cast<uint32_t>(extra.sexId);
+
+                        // Look up hair texture (section 3)
+                        for (uint32_t r = 0; r < charSectionsDbc2->getRecordCount(); r++) {
+                            uint32_t rId = charSectionsDbc2->getUInt32(r, csL ? (*csL)["RaceID"] : 1);
+                            uint32_t sId = charSectionsDbc2->getUInt32(r, csL ? (*csL)["SexID"] : 2);
+                            if (rId != tgtRace || sId != tgtSex) continue;
+                            uint32_t sec = charSectionsDbc2->getUInt32(r, csL ? (*csL)["BaseSection"] : 3);
+                            if (sec != 3) continue;
+                            uint32_t var = charSectionsDbc2->getUInt32(r, csL ? (*csL)["VariationIndex"] : 4);
+                            uint32_t col = charSectionsDbc2->getUInt32(r, csL ? (*csL)["ColorIndex"] : 5);
+                            if (var != static_cast<uint32_t>(extra.hairStyleId)) continue;
+                            if (col != static_cast<uint32_t>(extra.hairColorId)) continue;
+                            std::string hairPath = charSectionsDbc2->getString(r, csL ? (*csL)["Texture1"] : 6);
+                            if (!hairPath.empty()) {
+                                rendering::VkTexture* hairTex = charRenderer->loadTexture(hairPath);
+                                if (hairTex) {
+                                    for (size_t ti = 0; ti < md->textures.size(); ti++) {
+                                        if (md->textures[ti].type == 6) {
+                                            charRenderer->setTextureSlotOverride(instanceId, static_cast<uint16_t>(ti), hairTex);
+                                        }
+                                    }
+                                }
+                            }
+                            break;
+                        }
+
+                        // Look up skin texture (section 0) for per-instance skin color
+                        for (uint32_t r = 0; r < charSectionsDbc2->getRecordCount(); r++) {
+                            uint32_t rId = charSectionsDbc2->getUInt32(r, csL ? (*csL)["RaceID"] : 1);
+                            uint32_t sId = charSectionsDbc2->getUInt32(r, csL ? (*csL)["SexID"] : 2);
+                            if (rId != tgtRace || sId != tgtSex) continue;
+                            uint32_t sec = charSectionsDbc2->getUInt32(r, csL ? (*csL)["BaseSection"] : 3);
+                            if (sec != 0) continue;
+                            uint32_t col = charSectionsDbc2->getUInt32(r, csL ? (*csL)["ColorIndex"] : 5);
+                            if (col != static_cast<uint32_t>(extra.skinId)) continue;
+                            std::string skinPath = charSectionsDbc2->getString(r, csL ? (*csL)["Texture1"] : 6);
+                            if (!skinPath.empty()) {
+                                rendering::VkTexture* skinTex = charRenderer->loadTexture(skinPath);
+                                if (skinTex) {
+                                    for (size_t ti = 0; ti < md->textures.size(); ti++) {
+                                        uint32_t tt = md->textures[ti].type;
+                                        if (tt == 1 || tt == 11) {
+                                            charRenderer->setTextureSlotOverride(instanceId, static_cast<uint16_t>(ti), skinTex);
+                                        }
+                                    }
+                                }
+                            }
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     // Optional humanoid NPC geoset mask. Disabled by default because forcing geosets
     // causes long-standing visual artifacts on some models (missing waist, phantom
     // bracers, flickering apron overlays). Prefer model defaults.
