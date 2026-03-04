@@ -1580,13 +1580,12 @@ int CharacterRenderer::findKeyframeIndex(const std::vector<uint32_t>& timestamps
     if (timestamps.empty()) return -1;
     if (timestamps.size() == 1) return 0;
 
-    // Binary search for the keyframe bracket
-    for (size_t i = 0; i < timestamps.size() - 1; i++) {
-        if (time < static_cast<float>(timestamps[i + 1])) {
-            return static_cast<int>(i);
-        }
-    }
-    return static_cast<int>(timestamps.size() - 2);
+    // Binary search: find first element > t, then back up one
+    uint32_t t = static_cast<uint32_t>(time);
+    auto it = std::upper_bound(timestamps.begin(), timestamps.end(), t);
+    if (it == timestamps.begin()) return 0;
+    size_t idx = static_cast<size_t>(it - timestamps.begin()) - 1;
+    return static_cast<int>(std::min(idx, timestamps.size() - 2));
 }
 
 glm::vec3 CharacterRenderer::interpolateVec3(const pipeline::M2AnimationTrack& track,
@@ -1630,8 +1629,8 @@ glm::quat CharacterRenderer::interpolateQuat(const pipeline::M2AnimationTrack& t
     if (keys.timestamps.empty() || keys.quatValues.empty()) return identity;
 
     auto safeQuat = [&](const glm::quat& q) -> glm::quat {
-        float len = glm::length(q);
-        if (len < 0.001f || std::isnan(len)) return identity;
+        float lenSq = q.x*q.x + q.y*q.y + q.z*q.z + q.w*q.w;
+        if (lenSq < 0.000001f || std::isnan(lenSq)) return identity;
         return q;
     };
 
@@ -1773,9 +1772,14 @@ void CharacterRenderer::render(VkCommandBuffer cmd, VkDescriptorSet perFrameSet,
             float distSq = glm::dot(toInst, toInst);
             if (distSq > renderRadiusSq) continue;
             if (distSq > nearNoConeCullSq) {
-                float invDist = 1.0f / std::sqrt(distSq);
-                float facingDot = glm::dot(toInst, camForward) * invDist;
-                if (facingDot < backfaceDotCull) continue;
+                // Backface cull without sqrt: dot(toInst, camFwd) / |toInst| < threshold
+                // ⟺ dot < 0 || dot² < threshold² * distSq  (when threshold < 0, dot must be negative)
+                float rawDot = glm::dot(toInst, camForward);
+                if (backfaceDotCull >= 0.0f) {
+                    if (rawDot < 0.0f || rawDot * rawDot < backfaceDotCull * backfaceDotCull * distSq) continue;
+                } else {
+                    if (rawDot < 0.0f && rawDot * rawDot > backfaceDotCull * backfaceDotCull * distSq) continue;
+                }
             }
         }
 

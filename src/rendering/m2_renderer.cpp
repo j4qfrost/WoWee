@@ -1741,12 +1741,12 @@ uint32_t M2Renderer::createInstanceWithMatrix(uint32_t modelId, const glm::mat4&
 static int findKeyframeIndex(const std::vector<uint32_t>& timestamps, float time) {
     if (timestamps.empty()) return -1;
     if (timestamps.size() == 1) return 0;
-    for (size_t i = 0; i < timestamps.size() - 1; i++) {
-        if (time < static_cast<float>(timestamps[i + 1])) {
-            return static_cast<int>(i);
-        }
-    }
-    return static_cast<int>(timestamps.size() - 2);
+    uint32_t t = static_cast<uint32_t>(time);
+    // Binary search: find first element > t, then back up one
+    auto it = std::upper_bound(timestamps.begin(), timestamps.end(), t);
+    if (it == timestamps.begin()) return 0;
+    size_t idx = static_cast<size_t>(it - timestamps.begin()) - 1;
+    return static_cast<int>(std::min(idx, timestamps.size() - 2));
 }
 
 // Resolve sequence index and time for a track, handling global sequences.
@@ -1803,8 +1803,8 @@ static glm::quat interpQuat(const pipeline::M2AnimationTrack& track,
     const auto& keys = track.sequences[si];
     if (keys.timestamps.empty() || keys.quatValues.empty()) return identity;
     auto safe = [&](const glm::quat& q) -> glm::quat {
-        float len = glm::length(q);
-        if (len < 0.001f || std::isnan(len)) return identity;
+        float lenSq = q.x*q.x + q.y*q.y + q.z*q.z + q.w*q.w;
+        if (lenSq < 0.000001f || std::isnan(lenSq)) return identity;
         return q;
     };
     if (keys.quatValues.size() == 1) return safe(keys.quatValues[0]);
@@ -1907,21 +1907,23 @@ void M2Renderer::update(float deltaTime, const glm::vec3& cameraPos, const glm::
         smokeEmitAccum = 0.0f;
     }
 
-    // --- Update existing smoke particles ---
-    for (auto it = smokeParticles.begin(); it != smokeParticles.end(); ) {
-        it->life += deltaTime;
-        if (it->life >= it->maxLife) {
-            it = smokeParticles.erase(it);
+    // --- Update existing smoke particles (swap-and-pop for O(1) removal) ---
+    for (size_t i = 0; i < smokeParticles.size(); ) {
+        auto& p = smokeParticles[i];
+        p.life += deltaTime;
+        if (p.life >= p.maxLife) {
+            smokeParticles[i] = smokeParticles.back();
+            smokeParticles.pop_back();
             continue;
         }
-        it->position += it->velocity * deltaTime;
-        it->velocity.z *= 0.98f;  // Slight deceleration
-        it->velocity.x += distDrift(smokeRng) * deltaTime;
-        it->velocity.y += distDrift(smokeRng) * deltaTime;
+        p.position += p.velocity * deltaTime;
+        p.velocity.z *= 0.98f;  // Slight deceleration
+        p.velocity.x += distDrift(smokeRng) * deltaTime;
+        p.velocity.y += distDrift(smokeRng) * deltaTime;
         // Grow from 1.0 to 3.5 over lifetime
-        float t = it->life / it->maxLife;
-        it->size = 1.0f + t * 2.5f;
-        ++it;
+        float t = p.life / p.maxLife;
+        p.size = 1.0f + t * 2.5f;
+        ++i;
     }
 
     // --- Normal M2 animation update ---
