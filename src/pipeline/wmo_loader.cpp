@@ -586,10 +586,6 @@ bool WMOLoader::loadGroup(const std::vector<uint8_t>& groupData,
                         group.liquid.basePosition.y = read<float>(groupData, parseOffset);
                         group.liquid.basePosition.z = read<float>(groupData, parseOffset);
                         group.liquid.materialId = read<uint16_t>(groupData, parseOffset);
-                        if (parseOffset + sizeof(uint16_t) <= subChunkEnd) {
-                            // Reserved/flags in some WMO liquid variants.
-                            parseOffset += sizeof(uint16_t);
-                        }
 
                         // Keep parser resilient across minor format variants:
                         // prefer explicit per-vertex floats, otherwise fall back to flat.

@@ -970,6 +970,10 @@ void Application::update(float deltaTime) {
                 bool onTransportNow = gameHandler && gameHandler->isOnTransport();
                 if (worldEntryMovementGraceTimer_ > 0.0f) {
                     worldEntryMovementGraceTimer_ -= deltaTime;
+                    // Clear stale movement from before teleport each frame
+                    // until grace period expires (keys may still be held)
+                    if (renderer && renderer->getCameraController())
+                        renderer->getCameraController()->clearMovementInputs();
                 }
                 if (renderer && renderer->getCameraController()) {
                 const bool externallyDrivenMotion = onTaxi || onTransportNow || chargeActive_;
@@ -1550,6 +1554,9 @@ void Application::setupUICallbacks() {
             worldEntryMovementGraceTimer_ = 2.0f;
             taxiLandingClampTimer_ = 0.0f;
             lastTaxiFlight_ = false;
+            // Stop any movement that was active before the teleport
+            if (renderer->getCameraController())
+                renderer->getCameraController()->clearMovementInputs();
             return;
         }
 
@@ -1565,6 +1572,9 @@ void Application::setupUICallbacks() {
         worldEntryMovementGraceTimer_ = 2.0f;
         taxiLandingClampTimer_ = 0.0f;
         lastTaxiFlight_ = false;
+        // Stop any movement that was active before the teleport
+        if (renderer && renderer->getCameraController())
+            renderer->getCameraController()->clearMovementInputs();
         loadOnlineWorldTerrain(mapId, x, y, z);
         // loadedMapId_ is set inside loadOnlineWorldTerrain (including
         // any deferred entries it processes), so we must NOT override it here.

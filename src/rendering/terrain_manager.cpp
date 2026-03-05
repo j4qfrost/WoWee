@@ -837,10 +837,11 @@ bool TerrainManager::advanceFinalization(FinalizingTile& ft) {
                         modelMatrix = glm::rotate(modelMatrix, wmoReady.rotation.y, glm::vec3(0.0f, 1.0f, 0.0f));
                         modelMatrix = glm::rotate(modelMatrix, wmoReady.rotation.x, glm::vec3(1.0f, 0.0f, 0.0f));
                         for (const auto& group : wmoReady.model.groups) {
-                            if (group.liquid.hasLiquid()) {
-                                waterRenderer->loadFromWMO(group.liquid, modelMatrix, wmoInstId);
-                                loadedLiquids++;
-                            }
+                            if (!group.liquid.hasLiquid()) continue;
+                            // Skip interior groups — their liquid is for indoor areas
+                            if (group.flags & 0x2000) continue;
+                            waterRenderer->loadFromWMO(group.liquid, modelMatrix, wmoInstId);
+                            loadedLiquids++;
                         }
                     }
                 }

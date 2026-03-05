@@ -875,8 +875,6 @@ void WaterRenderer::loadFromWMO([[maybe_unused]] const pipeline::WMOLiquid& liqu
     const int vertexCount = gridWidth * gridHeight;
 
     // WMO liquid base heights sit ~2 units above the visual waterline.
-    // Lower them to match surrounding terrain water and prevent clipping
-    // at bridge edges and walkways.
     constexpr float WMO_WATER_Z_OFFSET = -1.0f;
     float adjustedZ = surface.origin.z + WMO_WATER_Z_OFFSET;
     surface.heights.assign(vertexCount, adjustedZ);
@@ -895,7 +893,6 @@ void WaterRenderer::loadFromWMO([[maybe_unused]] const pipeline::WMOLiquid& liqu
     for (size_t t = 0; t < tileCount; t++) {
         bool hasLiquid = true;
         if (t < liquid.flags.size()) {
-            // In WoW MLIQ format, (flags & 0x0F) == 0x0F means "no liquid" for this tile
             if ((liquid.flags[t] & 0x0F) == 0x0F) {
                 hasLiquid = false;
             }
