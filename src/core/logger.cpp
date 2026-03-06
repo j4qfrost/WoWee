@@ -6,6 +6,9 @@
 #include <cstdlib>
 #include <algorithm>
 #include <cctype>
+#include <cstring>
+#include <iterator>
+#include <ranges>
 
 namespace wowee {
 namespace core {
@@ -42,15 +45,16 @@ void Logger::ensureFile() {
         }
     }
     if (const char* level = std::getenv("WOWEE_LOG_LEVEL")) {
-        std::string v(level);
-        std::transform(v.begin(), v.end(), v.begin(), [](unsigned char c) {
-            return static_cast<char>(std::tolower(c));
-        });
-        if (v == "debug") setLogLevel(LogLevel::DEBUG);
-        else if (v == "info") setLogLevel(LogLevel::INFO);
-        else if (v == "warn" || v == "warning") setLogLevel(LogLevel::WARNING);
-        else if (v == "error") setLogLevel(kLogLevelError);
-        else if (v == "fatal") setLogLevel(LogLevel::FATAL);
+        auto toLower = [] (unsigned char c) { return std::tolower(c); };
+        using namespace std::literals;
+
+        auto v = std::string_view{level} | std::views::transform(toLower);
+        if (std::ranges::equal(v, "debug"sv)) setLogLevel(LogLevel::DEBUG);
+        else if (std::ranges::equal(v, "info"sv)) setLogLevel(LogLevel::INFO);
+        else if (std::ranges::equal(v, "warn"sv) || std::ranges::equal(v, "warning"sv))
+			setLogLevel(LogLevel::WARNING);
+        else if (std::ranges::equal(v, "error"sv)) setLogLevel(kLogLevelError);
+        else if (std::ranges::equal(v, "fatal"sv)) setLogLevel(LogLevel::FATAL);
     }
     std::error_code ec;
     std::filesystem::create_directories("logs", ec);
