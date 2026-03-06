@@ -8812,8 +8812,9 @@ void GameHandler::checkAreaTriggers() {
     // Deeprun Tram entrance triggers need extended range because WMO
     // collision walls block the player from reaching the trigger center.
     static const std::unordered_set<uint32_t> extendedRangeTriggers = {
-        712, 713,   // Stormwind/Ironforge → Deeprun Tram
+        712, 713,   // Stormwind/Ironforge → Deeprun Tram (classic IDs)
         2166, 2171, // Tram interior exit triggers
+        2173, 2175, // Stormwind/Ironforge tram entrance (WotLK IDs)
     };
 
     for (const auto& at : areaTriggers_) {

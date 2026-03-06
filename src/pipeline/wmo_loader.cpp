@@ -498,6 +498,16 @@ bool WMOLoader::loadGroup(const std::vector<uint8_t>& groupData,
                         group.indices.push_back(read<uint16_t>(groupData, mogpOffset));
                     }
                 }
+                else if (subChunkId == 0x4D4F5059) { // MOPY - Triangle material info
+                    // 2 bytes per triangle: flags (uint8) + materialId (uint8)
+                    // flag 0x04 = detail/decorative geometry (no collision)
+                    uint32_t triCount = subChunkSize / 2;
+                    group.triFlags.resize(triCount);
+                    for (uint32_t i = 0; i < triCount; i++) {
+                        group.triFlags[i] = read<uint8_t>(groupData, mogpOffset);
+                        read<uint8_t>(groupData, mogpOffset); // materialId (skip)
+                    }
+                }
                 else if (subChunkId == 0x4D4F4E52) { // MONR - Normals
                     uint32_t normalCount = subChunkSize / 12;
                     core::Logger::getInstance().debug("  MONR: ", normalCount, " normals for ", group.vertices.size(), " vertices");

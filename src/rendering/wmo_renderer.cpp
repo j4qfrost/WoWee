@@ -1871,12 +1871,27 @@ bool WMORenderer::createGroupResources(const pipeline::WMOGroup& group, GroupRes
     resources.indexBuffer = idxBuf.buffer;
     resources.indexAlloc = idxBuf.allocation;
 
-    // Store collision geometry for floor raycasting
+    // Store collision geometry for floor raycasting.
+    // Use MOPY per-triangle flags to exclude detail/decorative geometry (flag 0x04)
+    // from collision — these are things like gears, railings, etc.
     resources.collisionVertices.reserve(group.vertices.size());
     for (const auto& v : group.vertices) {
         resources.collisionVertices.push_back(v.position);
     }
-    resources.collisionIndices = group.indices;
+    if (!group.triFlags.empty()) {
+        // Filter out non-collidable triangles
+        resources.collisionIndices.reserve(group.indices.size());
+        size_t numTris = group.indices.size() / 3;
+        for (size_t t = 0; t < numTris; t++) {
+            uint8_t flags = (t < group.triFlags.size()) ? group.triFlags[t] : 0;
+            if (flags & 0x04) continue;  // detail/decorative — skip collision
+            resources.collisionIndices.push_back(group.indices[t * 3 + 0]);
+            resources.collisionIndices.push_back(group.indices[t * 3 + 1]);
+            resources.collisionIndices.push_back(group.indices[t * 3 + 2]);
+        }
+    } else {
+        resources.collisionIndices = group.indices;
+    }
 
     // Compute actual bounding box from vertices (WMO header bboxes can be unreliable)
     if (!resources.collisionVertices.empty()) {
