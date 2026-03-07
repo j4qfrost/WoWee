@@ -1247,6 +1247,10 @@ bool CharacterRenderer::loadModel(const pipeline::M2Model& model, uint32_t id) {
     M2ModelGPU gpuModel;
     gpuModel.data = model;
 
+    // Batch all GPU uploads (VB, IB, textures) into a single command buffer
+    // submission with one fence wait, instead of one fence wait per upload.
+    vkCtx_->beginUploadBatch();
+
     // Setup GPU buffers
     setupModelBuffers(gpuModel);
 
@@ -1258,6 +1262,8 @@ bool CharacterRenderer::loadModel(const pipeline::M2Model& model, uint32_t id) {
         VkTexture* texPtr = loadTexture(tex.filename);
         gpuModel.textureIds.push_back(texPtr);
     }
+
+    vkCtx_->endUploadBatch();
 
     models[id] = std::move(gpuModel);
 

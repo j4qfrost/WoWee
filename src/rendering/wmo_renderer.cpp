@@ -419,6 +419,10 @@ bool WMORenderer::loadModel(const pipeline::WMOModel& model, uint32_t id) {
     core::Logger::getInstance().debug("  WMO bounds: min=(", model.boundingBoxMin.x, ", ", model.boundingBoxMin.y, ", ", model.boundingBoxMin.z,
                                       ") max=(", model.boundingBoxMax.x, ", ", model.boundingBoxMax.y, ", ", model.boundingBoxMax.z, ")");
 
+    // Batch all GPU uploads (textures, VBs, IBs) into a single command buffer
+    // submission with one fence wait, instead of one per upload.
+    vkCtx_->beginUploadBatch();
+
     // Load textures for this model
     core::Logger::getInstance().debug("  WMO has ", model.textures.size(), " texture paths, ", model.materials.size(), " materials");
     if (assetManager && !model.textures.empty()) {
@@ -719,6 +723,8 @@ bool WMORenderer::loadModel(const pipeline::WMOModel& model, uint32_t id) {
         }
         groupRes.allUntextured = !anyTextured && !groupRes.mergedBatches.empty();
     }
+
+    vkCtx_->endUploadBatch();
 
     // Copy portal data for visibility culling
     modelData.portalVertices = model.portalVertices;

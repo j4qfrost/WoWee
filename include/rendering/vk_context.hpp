@@ -1,5 +1,6 @@
 #pragma once
 
+#include "rendering/vk_utils.hpp"
 #include <vulkan/vulkan.h>
 #include <vk_mem_alloc.h>
 #include <VkBootstrap.h>
@@ -45,6 +46,13 @@ public:
 
     // Immediate submit for one-off GPU work (descriptor pool creation, etc.)
     void immediateSubmit(std::function<void(VkCommandBuffer cmd)>&& function);
+
+    // Batch upload mode: records multiple upload commands into a single
+    // command buffer, then submits with ONE fence wait instead of one per upload.
+    void beginUploadBatch();
+    void endUploadBatch();
+    bool isInUploadBatch() const { return inUploadBatch_; }
+    void deferStagingCleanup(AllocatedBuffer staging);
 
     // Accessors
     VkInstance getInstance() const { return instance; }
@@ -142,6 +150,12 @@ private:
     // Immediate submit resources
     VkCommandPool immCommandPool = VK_NULL_HANDLE;
     VkFence immFence = VK_NULL_HANDLE;
+
+    // Batch upload state (nesting-safe via depth counter)
+    int uploadBatchDepth_ = 0;
+    bool inUploadBatch_ = false;
+    VkCommandBuffer batchCmd_ = VK_NULL_HANDLE;
+    std::vector<AllocatedBuffer> batchStagingBuffers_;
 
     // Depth buffer (shared across all framebuffers)
     VkImage depthImage = VK_NULL_HANDLE;

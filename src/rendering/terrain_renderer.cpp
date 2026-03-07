@@ -326,6 +326,8 @@ bool TerrainRenderer::loadTerrain(const pipeline::TerrainMesh& mesh,
     }
     LOG_DEBUG("Loading terrain mesh: ", mesh.validChunkCount, " chunks");
 
+    vkCtx->beginUploadBatch();
+
     for (int y = 0; y < 16; y++) {
         for (int x = 0; x < 16; x++) {
             const auto& chunk = mesh.getChunk(x, y);
@@ -405,6 +407,8 @@ bool TerrainRenderer::loadTerrain(const pipeline::TerrainMesh& mesh,
         }
     }
 
+    vkCtx->endUploadBatch();
+
     LOG_DEBUG("Loaded ", chunks.size(), " terrain chunks to GPU");
     return !chunks.empty();
 }
@@ -413,6 +417,10 @@ bool TerrainRenderer::loadTerrainIncremental(const pipeline::TerrainMesh& mesh,
                                               const std::vector<std::string>& texturePaths,
                                               int tileX, int tileY,
                                               int& chunkIndex, int maxChunksPerCall) {
+    // Batch all GPU uploads (VBs, IBs, textures) into a single command buffer
+    // submission with one fence wait, instead of one per buffer/texture.
+    vkCtx->beginUploadBatch();
+
     int uploaded = 0;
     while (chunkIndex < 256 && uploaded < maxChunksPerCall) {
         int cy = chunkIndex / 16;
@@ -489,6 +497,8 @@ bool TerrainRenderer::loadTerrainIncremental(const pipeline::TerrainMesh& mesh,
         chunks.push_back(std::move(gpuChunk));
         uploaded++;
     }
+
+    vkCtx->endUploadBatch();
 
     return chunkIndex >= 256;
 }
@@ -580,6 +590,9 @@ void TerrainRenderer::uploadPreloadedTextures(
                        [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
         return key;
     };
+    // Batch all texture uploads into a single command buffer submission
+    vkCtx->beginUploadBatch();
+
     for (const auto& [path, blp] : textures) {
         std::string key = normalizeKey(path);
         if (textureCache.find(key) != textureCache.end()) continue;
@@ -599,6 +612,8 @@ void TerrainRenderer::uploadPreloadedTextures(
         textureCacheBytes_ += e.approxBytes;
         textureCache[key] = std::move(e);
     }
+
+    vkCtx->endUploadBatch();
 }
 
 VkTexture* TerrainRenderer::createAlphaTexture(const std::vector<uint8_t>& alphaData) {

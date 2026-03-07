@@ -198,8 +198,12 @@ AllocatedBuffer uploadBuffer(VkContext& ctx, const void* data, VkDeviceSize size
         vkCmdCopyBuffer(cmd, staging.buffer, gpuBuffer.buffer, 1, &copyRegion);
     });
 
-    // Destroy staging buffer
-    destroyBuffer(ctx.getAllocator(), staging);
+    // Destroy staging buffer (deferred if in batch mode)
+    if (ctx.isInUploadBatch()) {
+        ctx.deferStagingCleanup(staging);
+    } else {
+        destroyBuffer(ctx.getAllocator(), staging);
+    }
 
     return gpuBuffer;
 }

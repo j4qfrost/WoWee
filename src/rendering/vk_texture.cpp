@@ -96,7 +96,11 @@ bool VkTexture::upload(VkContext& ctx, const uint8_t* pixels, uint32_t width, ui
         generateMipmaps(ctx, format, width, height);
     }
 
-    destroyBuffer(ctx.getAllocator(), staging);
+    if (ctx.isInUploadBatch()) {
+        ctx.deferStagingCleanup(staging);
+    } else {
+        destroyBuffer(ctx.getAllocator(), staging);
+    }
     return true;
 }
 
@@ -162,7 +166,11 @@ bool VkTexture::uploadMips(VkContext& ctx, const uint8_t* const* mipData,
             VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
     });
 
-    destroyBuffer(ctx.getAllocator(), staging);
+    if (ctx.isInUploadBatch()) {
+        ctx.deferStagingCleanup(staging);
+    } else {
+        destroyBuffer(ctx.getAllocator(), staging);
+    }
     return true;
 }
 

@@ -1423,9 +1423,43 @@ void VkContext::endSingleTimeCommands(VkCommandBuffer cmd) {
 }
 
 void VkContext::immediateSubmit(std::function<void(VkCommandBuffer cmd)>&& function) {
+    if (inUploadBatch_) {
+        // Record into the batch command buffer — no submit, no fence wait
+        function(batchCmd_);
+        return;
+    }
     VkCommandBuffer cmd = beginSingleTimeCommands();
     function(cmd);
     endSingleTimeCommands(cmd);
+}
+
+void VkContext::beginUploadBatch() {
+    uploadBatchDepth_++;
+    if (inUploadBatch_) return; // already in a batch (nested call)
+    inUploadBatch_ = true;
+    batchCmd_ = beginSingleTimeCommands();
+}
+
+void VkContext::endUploadBatch() {
+    if (uploadBatchDepth_ <= 0) return;
+    uploadBatchDepth_--;
+    if (uploadBatchDepth_ > 0) return; // still inside an outer batch
+
+    inUploadBatch_ = false;
+
+    // Submit all recorded commands with a single fence wait
+    endSingleTimeCommands(batchCmd_);
+    batchCmd_ = VK_NULL_HANDLE;
+
+    // Destroy all deferred staging buffers
+    for (auto& staging : batchStagingBuffers_) {
+        destroyBuffer(allocator, staging);
+    }
+    batchStagingBuffers_.clear();
+}
+
+void VkContext::deferStagingCleanup(AllocatedBuffer staging) {
+    batchStagingBuffers_.push_back(staging);
 }
 
 } // namespace rendering

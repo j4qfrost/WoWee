@@ -1185,6 +1185,10 @@ bool M2Renderer::loadModel(const pipeline::M2Model& model, uint32_t modelId) {
         }
     }
 
+    // Batch all GPU uploads (VB, IB, textures) into a single command buffer
+    // submission with one fence wait, instead of one fence wait per upload.
+    vkCtx_->beginUploadBatch();
+
     if (hasGeometry) {
         // Create VBO with interleaved vertex data
         // Format: position (3), normal (3), texcoord0 (2), texcoord1 (2), boneWeights (4), boneIndices (4 as float)
@@ -1535,6 +1539,8 @@ bool M2Renderer::loadModel(const pipeline::M2Model& model, uint32_t modelId) {
                       size.x, " x ", size.y, " x ", size.z, ")");
         }
     }
+
+    vkCtx_->endUploadBatch();
 
     // Allocate Vulkan descriptor sets and UBOs for each batch
     for (auto& bgpu : gpuModel.batches) {
