@@ -1367,16 +1367,16 @@ void GameScreen::processTargetInput(game::GameHandler& gameHandler) {
 
     }
 
-    // Slash key: focus chat input
-    if (!io.WantCaptureKeyboard && input.isKeyJustPressed(SDL_SCANCODE_SLASH)) {
+    // Slash key: focus chat input — always works unless already typing in chat
+    if (!chatInputActive && input.isKeyJustPressed(SDL_SCANCODE_SLASH)) {
         refocusChatInput = true;
         chatInputBuffer[0] = '/';
         chatInputBuffer[1] = '\0';
         chatInputMoveCursorToEnd = true;
     }
 
-    // Enter key: focus chat input (empty)
-    if (!io.WantCaptureKeyboard && input.isKeyJustPressed(SDL_SCANCODE_RETURN)) {
+    // Enter key: focus chat input (empty) — always works unless already typing
+    if (!chatInputActive && input.isKeyJustPressed(SDL_SCANCODE_RETURN)) {
         refocusChatInput = true;
     }
 

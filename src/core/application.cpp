@@ -1667,13 +1667,17 @@ void Application::setupUICallbacks() {
         }
 
         // Sample floor at the DESTINATION position (after nudge).
+        // Pick the highest floor so we snap up to WMO floors when fallen below.
+        bool foundFloor = false;
         if (auto floor = sampleBestFloorAt(pos.x, pos.y, pos.z + 60.0f)) {
             pos.z = *floor + 0.2f;
-        } else {
-            pos.z += 20.0f;
+            foundFloor = true;
         }
 
         cc->teleportTo(pos);
+        if (!foundFloor) {
+            cc->setGrounded(false);  // Let gravity pull player down to a surface
+        }
         syncTeleportedPositionToServer(pos);
         forceServerTeleportCommand(pos);
         clearStuckMovement();

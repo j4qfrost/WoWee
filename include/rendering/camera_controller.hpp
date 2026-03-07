@@ -81,6 +81,7 @@ public:
     bool isSitting() const { return sitting; }
     bool isSwimming() const { return swimming; }
     bool isInsideWMO() const { return cachedInsideWMO; }
+    void setGrounded(bool g) { grounded = g; }
     bool isOnTaxi() const { return externalFollow_; }
     const glm::vec3* getFollowTarget() const { return followTarget; }
     glm::vec3* getFollowTargetMutable() { return followTarget; }
@@ -141,6 +142,7 @@ private:
     static constexpr float MIN_DISTANCE = 0.5f;     // Minimum zoom (first-person threshold)
     static constexpr float MAX_DISTANCE_NORMAL = 22.0f;   // Default max zoom out
     static constexpr float MAX_DISTANCE_EXTENDED = 50.0f;  // Extended max zoom out
+    static constexpr float MAX_DISTANCE_INTERIOR = 12.0f;  // Max zoom inside WMOs
     bool extendedZoom_ = false;
     static constexpr float ZOOM_SMOOTH_SPEED = 15.0f;  // How fast zoom eases
     static constexpr float CAM_SMOOTH_SPEED = 20.0f;   // How fast camera position smooths

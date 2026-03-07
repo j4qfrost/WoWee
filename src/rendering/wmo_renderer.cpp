@@ -3095,7 +3095,7 @@ bool WMORenderer::checkWallCollision(const glm::vec3& from, const glm::vec3& to,
             float rangeMinY = std::min(localFrom.y, localTo.y) - PLAYER_RADIUS - 1.5f;
             float rangeMaxX = std::max(localFrom.x, localTo.x) + PLAYER_RADIUS + 1.5f;
             float rangeMaxY = std::max(localFrom.y, localTo.y) + PLAYER_RADIUS + 1.5f;
-            group.getWallTrianglesInRange(rangeMinX, rangeMinY, rangeMaxX, rangeMaxY, triScratch_);
+            group.getTrianglesInRange(rangeMinX, rangeMinY, rangeMaxX, rangeMaxY, triScratch_);
 
             for (uint32_t triStart : triScratch_) {
                 // Use pre-computed Z bounds for fast vertical reject
@@ -3113,17 +3113,18 @@ bool WMORenderer::checkWallCollision(const glm::vec3& from, const glm::vec3& to,
                 if (triHeight < 1.0f && tb.maxZ <= localFeetZ + 1.2f) continue;
 
                 // Use MOPY flags to filter wall collision.
-                // Only RENDERED triangles (flag 0x20) with collision intent (0x01)
-                // should block the player. Skip invisible collision hulls (0x08/0x48)
-                // and non-collidable render-only geometry.
+                // Collidable triangles (flag 0x01) block the player — including
+                // invisible collision walls (0x01 without 0x20) used in tunnels.
+                // Skip detail/decorative geometry (0x04) and render-only surfaces.
                 uint32_t triIdx = triStart / 3;
                 if (!group.triMopyFlags.empty() && triIdx < group.triMopyFlags.size()) {
                     uint8_t mopy = group.triMopyFlags[triIdx];
-                    // Must be rendered (0x20) AND have base collision flag (0x01)
-                    bool rendered = (mopy & 0x20) != 0;
-                    bool collidable = (mopy & 0x01) != 0;
-                    if (mopy != 0 && !(rendered && collidable)) {
-                        continue;
+                    if (mopy != 0) {
+                        bool collidable = (mopy & 0x01) != 0;
+                        bool detail = (mopy & 0x04) != 0;
+                        if (!collidable || detail) {
+                            continue;
+                        }
                     }
                 }
 
@@ -3149,13 +3150,13 @@ bool WMORenderer::checkWallCollision(const glm::vec3& from, const glm::vec3& to,
                             glm::vec3 hitPoint = localFrom + (localTo - localFrom) * tHit;
                             glm::vec3 hitClosest = closestPointOnTriangle(hitPoint, v0, v1, v2);
                             float hitErrSq = glm::dot(hitClosest - hitPoint, hitClosest - hitPoint);
-                            if (hitErrSq <= 0.15f * 0.15f) {
+                            if (hitErrSq <= 0.25f * 0.25f) {
                                 float side = fromDist > 0.0f ? 1.0f : -1.0f;
                                 glm::vec3 safeLocal = hitPoint + normal * side * (PLAYER_RADIUS + 0.05f);
                                 glm::vec3 pushLocal(safeLocal.x - localTo.x, safeLocal.y - localTo.y, 0.0f);
                                 // Cap swept pushback so walls don't shove the player violently
                                 float pushLen = glm::length(glm::vec2(pushLocal.x, pushLocal.y));
-                                const float MAX_SWEPT_PUSH = 0.15f;
+                                const float MAX_SWEPT_PUSH = insideWMO ? 0.45f : 0.25f;
                                 if (pushLen > MAX_SWEPT_PUSH) {
                                     float scale = MAX_SWEPT_PUSH / pushLen;
                                     pushLocal.x *= scale;
@@ -3185,7 +3186,7 @@ bool WMORenderer::checkWallCollision(const glm::vec3& from, const glm::vec3& to,
 
                     const float SKIN = 0.005f;        // small separation so we don't re-collide immediately
                     // Stronger push when inside WMO for more responsive indoor collision
-                    const float MAX_PUSH = insideWMO ? 0.12f : 0.08f;
+                    const float MAX_PUSH = insideWMO ? 0.35f : 0.15f;
                     float penetration = (PLAYER_RADIUS - horizDist);
                     float pushDist = glm::clamp(penetration + SKIN, 0.0f, MAX_PUSH);
                     glm::vec2 pushDir2;

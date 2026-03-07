@@ -626,7 +626,8 @@ void CameraController::update(float deltaTime) {
                 glm::vec3 stepPos = swimFrom;
 
                 if (swimMoveDist > 0.01f) {
-                    int swimSteps = std::max(1, std::min(3, static_cast<int>(std::ceil(swimMoveDist / 0.65f))));
+                    float swimStepSize = cachedInsideWMO ? 0.20f : 0.35f;
+                    int swimSteps = std::max(1, std::min(8, static_cast<int>(std::ceil(swimMoveDist / swimStepSize))));
                     glm::vec3 stepDelta = (swimTo - swimFrom) / static_cast<float>(swimSteps);
 
                     for (int i = 0; i < swimSteps; i++) {
@@ -634,7 +635,7 @@ void CameraController::update(float deltaTime) {
 
                         if (wmoRenderer) {
                             glm::vec3 adjusted;
-                            if (wmoRenderer->checkWallCollision(stepPos, candidate, adjusted)) {
+                            if (wmoRenderer->checkWallCollision(stepPos, candidate, adjusted, cachedInsideWMO)) {
                                 candidate.x = adjusted.x;
                                 candidate.y = adjusted.y;
                                 candidate.z = std::max(candidate.z, adjusted.z);
@@ -1274,8 +1275,10 @@ void CameraController::update(float deltaTime) {
                 lastInsideWMOCheckPos = targetPos;
             }
 
-            // Do not clamp zoom target by ceiling checks. First-person should always
-            // be reachable; occlusion handling below will resolve camera placement safely.
+            // Smoothly pull camera in when entering WMO interiors
+            if (cachedInsideWMO && userTargetDistance > MAX_DISTANCE_INTERIOR) {
+                userTargetDistance = MAX_DISTANCE_INTERIOR;
+            }
         }
 
         // ===== Camera collision (sphere sweep approximation) =====
@@ -1499,14 +1502,15 @@ void CameraController::update(float deltaTime) {
             float moveDist = glm::length(desiredFeet - startFeet);
 
             if (moveDist > 0.01f) {
-                int sweepSteps = std::max(1, std::min(3, static_cast<int>(std::ceil(moveDist / 0.65f))));
+                float stepSize = cachedInsideWMO ? 0.20f : 0.35f;
+                int sweepSteps = std::max(1, std::min(8, static_cast<int>(std::ceil(moveDist / stepSize))));
                 glm::vec3 stepPos = startFeet;
                 glm::vec3 stepDelta = (desiredFeet - startFeet) / static_cast<float>(sweepSteps);
 
                 for (int i = 0; i < sweepSteps; i++) {
                     glm::vec3 candidate = stepPos + stepDelta;
                     glm::vec3 adjusted;
-                    if (wmoRenderer->checkWallCollision(stepPos, candidate, adjusted)) {
+                    if (wmoRenderer->checkWallCollision(stepPos, candidate, adjusted, cachedInsideWMO)) {
                         candidate.x = adjusted.x;
                         candidate.y = adjusted.y;
                         candidate.z = std::max(candidate.z, adjusted.z);
@@ -1985,6 +1989,7 @@ void CameraController::processMouseWheel(float delta) {
     float zoomSpeed = glm::max(userTargetDistance * 0.15f, 0.3f);
     userTargetDistance -= delta * zoomSpeed;
     float maxDist = extendedZoom_ ? MAX_DISTANCE_EXTENDED : MAX_DISTANCE_NORMAL;
+    if (cachedInsideWMO) maxDist = std::min(maxDist, MAX_DISTANCE_INTERIOR);
     userTargetDistance = glm::clamp(userTargetDistance, MIN_DISTANCE, maxDist);
 }
 
