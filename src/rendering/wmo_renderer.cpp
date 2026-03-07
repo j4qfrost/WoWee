@@ -1724,11 +1724,18 @@ void WMORenderer::renderShadow(VkCommandBuffer cmd, const glm::mat4& lightSpaceM
 
     struct ShadowPush { glm::mat4 lightSpaceMatrix; glm::mat4 model; };
 
-    const float shadowRadiusSq = shadowRadius * shadowRadius;
+    // WMO shadow cull uses the ortho half-extent (shadow map coverage) rather than
+    // the proximity radius so that distant buildings whose shadows reach the player
+    // are still rendered into the shadow map.
+    const float wmoCullRadius = std::max(shadowRadius, 180.0f);
+    const float wmoCullRadiusSq = wmoCullRadius * wmoCullRadius;
+
     for (const auto& instance : instances) {
-        // Distance cull against shadow frustum
-        glm::vec3 diff = instance.position - shadowCenter;
-        if (glm::dot(diff, diff) > shadowRadiusSq) continue;
+        // Distance cull using world bounding box — WMO origins can be far from
+        // their geometry, so point-based culling misses large buildings.
+        glm::vec3 closest = glm::clamp(shadowCenter, instance.worldBoundsMin, instance.worldBoundsMax);
+        glm::vec3 diff = closest - shadowCenter;
+        if (glm::dot(diff, diff) > wmoCullRadiusSq) continue;
         auto modelIt = loadedModels.find(instance.modelId);
         if (modelIt == loadedModels.end()) continue;
         const ModelData& model = modelIt->second;
@@ -1737,7 +1744,8 @@ void WMORenderer::renderShadow(VkCommandBuffer cmd, const glm::mat4& lightSpaceM
         vkCmdPushConstants(cmd, shadowPipelineLayout_, VK_SHADER_STAGE_VERTEX_BIT,
                            0, 128, &push);
 
-        for (const auto& group : model.groups) {
+        for (size_t gi = 0; gi < model.groups.size(); ++gi) {
+            const auto& group = model.groups[gi];
             if (group.vertexBuffer == VK_NULL_HANDLE || group.indexBuffer == VK_NULL_HANDLE) continue;
 
             // Skip antiportal geometry
@@ -1746,13 +1754,18 @@ void WMORenderer::renderShadow(VkCommandBuffer cmd, const glm::mat4& lightSpaceM
             // Skip LOD groups in shadow pass (they overlap real geometry)
             if (group.isLOD) continue;
 
+            // Per-group AABB cull against shadow frustum
+            if (gi < instance.worldGroupBounds.size()) {
+                const auto& [gMin, gMax] = instance.worldGroupBounds[gi];
+                glm::vec3 gClosest = glm::clamp(shadowCenter, gMin, gMax);
+                glm::vec3 gDiff = gClosest - shadowCenter;
+                if (glm::dot(gDiff, gDiff) > wmoCullRadiusSq) continue;
+            }
+
             VkDeviceSize offset = 0;
             vkCmdBindVertexBuffers(cmd, 0, 1, &group.vertexBuffer, &offset);
             vkCmdBindIndexBuffer(cmd, group.indexBuffer, 0, VK_INDEX_TYPE_UINT16);
 
-            // Draw all batches in shadow pass.
-            // WMO transparency classification is not reliable enough for caster
-            // selection here and was dropping major world casters.
             for (const auto& mb : group.mergedBatches) {
                 for (const auto& dr : mb.draws) {
                     vkCmdDrawIndexed(cmd, dr.indexCount, 1, dr.firstIndex, 0, 0);
