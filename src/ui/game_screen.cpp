@@ -6180,6 +6180,7 @@ void GameScreen::renderSettingsWindow() {
         pendingVsync = window->isVsyncEnabled();
         if (renderer) {
             renderer->setShadowsEnabled(pendingShadows);
+            renderer->setShadowDistance(pendingShadowDistance);
             // Read non-volume settings from actual state (volumes come from saved settings)
             if (auto* cameraController = renderer->getCameraController()) {
                 pendingMouseSensitivity = cameraController->getMouseSensitivity();
@@ -6245,6 +6246,14 @@ void GameScreen::renderSettingsWindow() {
                 if (ImGui::Checkbox("Shadows", &pendingShadows)) {
                     if (renderer) renderer->setShadowsEnabled(pendingShadows);
                     saveSettings();
+                }
+                if (pendingShadows) {
+                    ImGui::SameLine();
+                    ImGui::SetNextItemWidth(150.0f);
+                    if (ImGui::SliderFloat("Distance##shadow", &pendingShadowDistance, 40.0f, 200.0f, "%.0f")) {
+                        if (renderer) renderer->setShadowDistance(pendingShadowDistance);
+                        saveSettings();
+                    }
                 }
                 if (ImGui::Checkbox("Water Refraction", &pendingWaterRefraction)) {
                     if (renderer) renderer->setWaterRefractionEnabled(pendingWaterRefraction);
@@ -6339,6 +6348,7 @@ void GameScreen::renderSettingsWindow() {
                     pendingFullscreen = kDefaultFullscreen;
                     pendingVsync = kDefaultVsync;
                     pendingShadows = kDefaultShadows;
+                    pendingShadowDistance = 72.0f;
                     pendingGroundClutterDensity = kDefaultGroundClutterDensity;
                     pendingAntiAliasing = 0;
                     pendingNormalMapping = true;
@@ -6350,7 +6360,10 @@ void GameScreen::renderSettingsWindow() {
                     window->setVsync(pendingVsync);
                     window->applyResolution(kResolutions[pendingResIndex][0], kResolutions[pendingResIndex][1]);
                     pendingWaterRefraction = false;
-                    if (renderer) renderer->setShadowsEnabled(pendingShadows);
+                    if (renderer) {
+                        renderer->setShadowsEnabled(pendingShadows);
+                        renderer->setShadowDistance(pendingShadowDistance);
+                    }
                     if (renderer) renderer->setWaterRefractionEnabled(pendingWaterRefraction);
                     if (renderer) renderer->setMsaaSamples(VK_SAMPLE_COUNT_1_BIT);
                     if (renderer) {
@@ -7364,6 +7377,7 @@ void GameScreen::saveSettings() {
     out << "auto_loot=" << (pendingAutoLoot ? 1 : 0) << "\n";
     out << "ground_clutter_density=" << pendingGroundClutterDensity << "\n";
     out << "shadows=" << (pendingShadows ? 1 : 0) << "\n";
+    out << "shadow_distance=" << pendingShadowDistance << "\n";
     out << "water_refraction=" << (pendingWaterRefraction ? 1 : 0) << "\n";
     out << "antialiasing=" << pendingAntiAliasing << "\n";
     out << "normal_mapping=" << (pendingNormalMapping ? 1 : 0) << "\n";
@@ -7449,6 +7463,7 @@ void GameScreen::loadSettings() {
             else if (key == "auto_loot") pendingAutoLoot = (std::stoi(val) != 0);
             else if (key == "ground_clutter_density") pendingGroundClutterDensity = std::clamp(std::stoi(val), 0, 150);
             else if (key == "shadows") pendingShadows = (std::stoi(val) != 0);
+            else if (key == "shadow_distance") pendingShadowDistance = std::clamp(std::stof(val), 40.0f, 200.0f);
             else if (key == "water_refraction") pendingWaterRefraction = (std::stoi(val) != 0);
             else if (key == "antialiasing") pendingAntiAliasing = std::clamp(std::stoi(val), 0, 3);
             else if (key == "normal_mapping") pendingNormalMapping = (std::stoi(val) != 0);

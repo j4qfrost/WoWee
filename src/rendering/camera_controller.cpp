@@ -200,16 +200,22 @@ void CameraController::update(float deltaTime) {
     // Don't process keyboard input when UI text input (e.g. chat box) has focus
     bool uiWantsKeyboard = ImGui::GetIO().WantTextInput;
 
+    // Suppress movement input after teleport/portal (keys may still be held)
+    if (movementSuppressTimer_ > 0.0f) {
+        movementSuppressTimer_ -= deltaTime;
+    }
+    bool movementSuppressed = movementSuppressTimer_ > 0.0f;
+
     // Determine current key states
-    bool keyW = !uiWantsKeyboard && !sitting && input.isKeyPressed(SDL_SCANCODE_W);
-    bool keyS = !uiWantsKeyboard && !sitting && input.isKeyPressed(SDL_SCANCODE_S);
-    bool keyA = !uiWantsKeyboard && !sitting && input.isKeyPressed(SDL_SCANCODE_A);
-    bool keyD = !uiWantsKeyboard && !sitting && input.isKeyPressed(SDL_SCANCODE_D);
-    bool keyQ = !uiWantsKeyboard && !sitting && input.isKeyPressed(SDL_SCANCODE_Q);
-    bool keyE = !uiWantsKeyboard && !sitting && input.isKeyPressed(SDL_SCANCODE_E);
+    bool keyW = !uiWantsKeyboard && !sitting && !movementSuppressed && input.isKeyPressed(SDL_SCANCODE_W);
+    bool keyS = !uiWantsKeyboard && !sitting && !movementSuppressed && input.isKeyPressed(SDL_SCANCODE_S);
+    bool keyA = !uiWantsKeyboard && !sitting && !movementSuppressed && input.isKeyPressed(SDL_SCANCODE_A);
+    bool keyD = !uiWantsKeyboard && !sitting && !movementSuppressed && input.isKeyPressed(SDL_SCANCODE_D);
+    bool keyQ = !uiWantsKeyboard && !sitting && !movementSuppressed && input.isKeyPressed(SDL_SCANCODE_Q);
+    bool keyE = !uiWantsKeyboard && !sitting && !movementSuppressed && input.isKeyPressed(SDL_SCANCODE_E);
     bool shiftDown = !uiWantsKeyboard && (input.isKeyPressed(SDL_SCANCODE_LSHIFT) || input.isKeyPressed(SDL_SCANCODE_RSHIFT));
     bool ctrlDown = !uiWantsKeyboard && (input.isKeyPressed(SDL_SCANCODE_LCTRL) || input.isKeyPressed(SDL_SCANCODE_RCTRL));
-    bool nowJump = !uiWantsKeyboard && !sitting && input.isKeyJustPressed(SDL_SCANCODE_SPACE);
+    bool nowJump = !uiWantsKeyboard && !sitting && !movementSuppressed && input.isKeyJustPressed(SDL_SCANCODE_SPACE);
 
     // Idle camera: any input resets the timer; timeout triggers a slow orbit pan
     bool anyInput = leftMouseDown || rightMouseDown || keyW || keyS || keyA || keyD || keyQ || keyE || nowJump;

@@ -1555,8 +1555,10 @@ void Application::setupUICallbacks() {
             taxiLandingClampTimer_ = 0.0f;
             lastTaxiFlight_ = false;
             // Stop any movement that was active before the teleport
-            if (renderer->getCameraController())
+            if (renderer->getCameraController()) {
                 renderer->getCameraController()->clearMovementInputs();
+                renderer->getCameraController()->suppressMovementFor(0.5f);
+            }
             return;
         }
 
@@ -1573,8 +1575,10 @@ void Application::setupUICallbacks() {
         taxiLandingClampTimer_ = 0.0f;
         lastTaxiFlight_ = false;
         // Stop any movement that was active before the teleport
-        if (renderer && renderer->getCameraController())
+        if (renderer && renderer->getCameraController()) {
             renderer->getCameraController()->clearMovementInputs();
+            renderer->getCameraController()->suppressMovementFor(1.0f);
+        }
         loadOnlineWorldTerrain(mapId, x, y, z);
         // loadedMapId_ is set inside loadOnlineWorldTerrain (including
         // any deferred entries it processes), so we must NOT override it here.

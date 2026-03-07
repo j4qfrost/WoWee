@@ -3766,10 +3766,10 @@ void Renderer::renderHUD() {
 // in createPerFrameResources() as part of the Vulkan shadow infrastructure.
 
 glm::mat4 Renderer::computeLightSpaceMatrix() {
-    constexpr float kShadowHalfExtent = 60.0f;
-    constexpr float kShadowLightDistance = 200.0f;
+    const float kShadowHalfExtent = shadowDistance_;
+    const float kShadowLightDistance = shadowDistance_ * 3.0f;
     constexpr float kShadowNearPlane = 1.0f;
-    constexpr float kShadowFarPlane = 450.0f;
+    const float kShadowFarPlane = shadowDistance_ * 6.5f;
 
     // Use active lighting direction so shadow projection matches main shading.
     // Fragment shaders derive lighting with `ldir = normalize(-lightDir.xyz)`,
@@ -3973,7 +3973,7 @@ void Renderer::renderShadowPass() {
     vkCmdSetScissor(currentCmd, 0, 1, &sc);
 
     // Phase 7/8: render shadow casters
-    const float shadowCullRadius = 80.0f;
+    const float shadowCullRadius = shadowDistance_ * 1.35f;
     if (wmoRenderer) {
         wmoRenderer->renderShadow(currentCmd, lightSpaceMatrix, shadowCenter, shadowCullRadius);
     }

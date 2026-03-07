@@ -97,6 +97,7 @@ public:
     void setExternalMoving(bool moving) { externalMoving_ = moving; }
     void setFacingYaw(float yaw) { facingYaw = yaw; }  // For taxi/scripted movement
     void clearMovementInputs();
+    void suppressMovementFor(float seconds) { movementSuppressTimer_ = seconds; }
 
     // Trigger mount jump (applies vertical velocity for physics hop)
     void triggerMountJump();
@@ -210,6 +211,9 @@ private:
     static constexpr float SWIM_BUOYANCY = 8.0f;
     static constexpr float SWIM_SINK_SPEED = -3.0f;
     static constexpr float WATER_SURFACE_OFFSET = 0.9f;
+
+    // Movement input suppression (after teleport/portal, ignore held keys)
+    float movementSuppressTimer_ = 0.0f;
 
     // State
     bool enabled = true;
