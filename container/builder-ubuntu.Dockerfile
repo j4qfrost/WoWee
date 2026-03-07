@@ -15,6 +15,8 @@ RUN apt-get update && \
 		libavcodec-dev \
 		libswscale-dev \
 		libavutil-dev \
+		libvulkan-dev \
+		vulkan-tools \
 		libstorm-dev && \
 	rm -rf /var/lib/apt/lists/*
 
