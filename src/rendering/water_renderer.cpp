@@ -684,12 +684,12 @@ void WaterRenderer::loadFromTerrain(const pipeline::ADTTerrain& terrain, bool ap
                     layer.minHeight
                 );
                 surface.origin = glm::vec3(
-                    surface.position.x - (static_cast<float>(layer.y) * TILE_SIZE),
-                    surface.position.y - (static_cast<float>(layer.x) * TILE_SIZE),
+                    surface.position.x - (static_cast<float>(layer.x) * TILE_SIZE),
+                    surface.position.y - (static_cast<float>(layer.y) * TILE_SIZE),
                     layer.minHeight
                 );
-                surface.stepX = glm::vec3(0.0f, -TILE_SIZE, 0.0f);
-                surface.stepY = glm::vec3(-TILE_SIZE, 0.0f, 0.0f);
+                surface.stepX = glm::vec3(-TILE_SIZE, 0.0f, 0.0f);
+                surface.stepY = glm::vec3(0.0f, -TILE_SIZE, 0.0f);
 
                 surface.minHeight = layer.minHeight;
                 surface.maxHeight = layer.maxHeight;
@@ -750,8 +750,8 @@ void WaterRenderer::loadFromTerrain(const pipeline::ADTTerrain& terrain, bool ap
         // Origin = chunk(0,0) position (NW corner of tile)
         surface.origin = glm::vec3(chunk00.position[0], chunk00.position[1], groupHeight);
         surface.position = surface.origin;
-        surface.stepX = glm::vec3(0.0f, -TILE_SIZE, 0.0f);
-        surface.stepY = glm::vec3(-TILE_SIZE, 0.0f, 0.0f);
+        surface.stepX = glm::vec3(-TILE_SIZE, 0.0f, 0.0f);
+        surface.stepY = glm::vec3(0.0f, -TILE_SIZE, 0.0f);
 
         surface.minHeight = groupHeight;
         surface.maxHeight = groupHeight;
