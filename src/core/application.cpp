@@ -968,6 +968,15 @@ void Application::update(float deltaTime) {
                                gameHandler->isTaxiMountActive() ||
                                gameHandler->isTaxiActivationPending());
                 bool onTransportNow = gameHandler && gameHandler->isOnTransport();
+                // M2 transports (trams) use position-delta approach: player keeps normal
+                // movement and the transport's frame-to-frame delta is applied on top.
+                // Only WMO transports (ships) use full external-driven mode.
+                bool isM2Transport = false;
+                if (onTransportNow && gameHandler->getTransportManager()) {
+                    auto* tr = gameHandler->getTransportManager()->getTransport(gameHandler->getPlayerTransportGuid());
+                    isM2Transport = (tr && tr->isM2);
+                }
+                bool onWMOTransport = onTransportNow && !isM2Transport;
                 if (worldEntryMovementGraceTimer_ > 0.0f) {
                     worldEntryMovementGraceTimer_ -= deltaTime;
                     // Clear stale movement from before teleport each frame
@@ -976,7 +985,7 @@ void Application::update(float deltaTime) {
                         renderer->getCameraController()->clearMovementInputs();
                 }
                 if (renderer && renderer->getCameraController()) {
-                const bool externallyDrivenMotion = onTaxi || onTransportNow || chargeActive_;
+                const bool externallyDrivenMotion = onTaxi || onWMOTransport || chargeActive_;
                 // Keep physics frozen (externalFollow) during landing clamp when terrain
                 // hasn't loaded yet — prevents gravity from pulling player through void.
                 bool landingClampActive = !onTaxi && taxiLandingClampTimer_ > 0.0f &&
@@ -1057,14 +1066,18 @@ void Application::update(float deltaTime) {
 
                 // Sync character render position ↔ canonical WoW coords each frame
                 if (renderer && gameHandler) {
-                bool onTransport = gameHandler->isOnTransport();
+                // For position sync branching, only WMO transports use the dedicated
+                // onTransport branch. M2 transports use the normal movement else branch
+                // with a position-delta correction applied on top.
+                bool onTransport = onWMOTransport;
 
-                // Debug: Log transport state changes
                 static bool wasOnTransport = false;
-                if (onTransport != wasOnTransport) {
-                    LOG_DEBUG("Transport state changed: onTransport=", onTransport,
+                bool onTransportNowDbg = gameHandler->isOnTransport();
+                if (onTransportNowDbg != wasOnTransport) {
+                    LOG_DEBUG("Transport state changed: onTransport=", onTransportNowDbg,
+                             " isM2=", isM2Transport,
                              " guid=0x", std::hex, gameHandler->getPlayerTransportGuid(), std::dec);
-                    wasOnTransport = onTransport;
+                    wasOnTransport = onTransportNowDbg;
                 }
 
                 if (onTaxi) {
@@ -1092,13 +1105,11 @@ void Application::update(float deltaTime) {
                         }
                     }
                 } else if (onTransport) {
-                    // Transport mode: compose world position from transport transform + local offset
+                    // WMO transport mode (ships): compose world position from transform + local offset
                     glm::vec3 canonical = gameHandler->getComposedWorldPosition();
                     glm::vec3 renderPos = core::coords::canonicalToRender(canonical);
                     renderer->getCharacterPosition() = renderPos;
-                    // Keep movementInfo in lockstep with composed transport world position.
                     gameHandler->setPosition(canonical.x, canonical.y, canonical.z);
-                    // Update camera follow target
                     if (renderer->getCameraController()) {
                         glm::vec3* followTarget = renderer->getCameraController()->getFollowTargetMutable();
                         if (followTarget) {
@@ -1172,6 +1183,27 @@ void Application::update(float deltaTime) {
                     }
                 } else {
                     glm::vec3 renderPos = renderer->getCharacterPosition();
+
+                    // M2 transport riding: apply transport's frame-to-frame position delta
+                    // so the player moves with the tram while retaining normal movement input.
+                    if (isM2Transport && gameHandler->getTransportManager()) {
+                        auto* tr = gameHandler->getTransportManager()->getTransport(
+                            gameHandler->getPlayerTransportGuid());
+                        if (tr) {
+                            static glm::vec3 lastTransportCanonical(0);
+                            static uint64_t lastTransportGuid = 0;
+                            if (lastTransportGuid == gameHandler->getPlayerTransportGuid()) {
+                                glm::vec3 deltaCanonical = tr->position - lastTransportCanonical;
+                                glm::vec3 deltaRender = core::coords::canonicalToRender(deltaCanonical)
+                                                      - core::coords::canonicalToRender(glm::vec3(0));
+                                renderPos += deltaRender;
+                                renderer->getCharacterPosition() = renderPos;
+                            }
+                            lastTransportCanonical = tr->position;
+                            lastTransportGuid = gameHandler->getPlayerTransportGuid();
+                        }
+                    }
+
                     glm::vec3 canonical = core::coords::renderToCanonical(renderPos);
                     gameHandler->setPosition(canonical.x, canonical.y, canonical.z);
 
@@ -1201,6 +1233,41 @@ void Application::update(float deltaTime) {
                             gameHandler->sendMovement(game::Opcode::MSG_MOVE_SET_FACING);
                             lastSentCanonicalYaw_ = canonicalYaw;
                             facingSendCooldown_ = 0.1f;  // max 10 Hz
+                        }
+                    }
+
+                    // Client-side transport boarding detection (for M2 transports like trams
+                    // where the server doesn't send transport attachment data).
+                    // Use a generous AABB around each transport's current position.
+                    if (gameHandler->getTransportManager() && !gameHandler->isOnTransport()) {
+                        auto* tm = gameHandler->getTransportManager();
+                        glm::vec3 playerCanonical = core::coords::renderToCanonical(renderPos);
+
+                        for (auto& [guid, transport] : tm->getTransports()) {
+                            if (!transport.isM2) continue;
+                            glm::vec3 diff = playerCanonical - transport.position;
+                            float horizDistSq = diff.x * diff.x + diff.y * diff.y;
+                            float vertDist = std::abs(diff.z);
+                            if (horizDistSq < 144.0f && vertDist < 15.0f) {
+                                gameHandler->setPlayerOnTransport(guid, playerCanonical - transport.position);
+                                LOG_DEBUG("M2 transport boarding: guid=0x", std::hex, guid, std::dec);
+                                break;
+                            }
+                        }
+                    }
+
+                    // M2 transport disembark: player walked far enough from transport center
+                    if (isM2Transport && gameHandler->getTransportManager()) {
+                        auto* tm = gameHandler->getTransportManager();
+                        auto* tr = tm->getTransport(gameHandler->getPlayerTransportGuid());
+                        if (tr) {
+                            glm::vec3 playerCanonical = core::coords::renderToCanonical(renderPos);
+                            glm::vec3 diff = playerCanonical - tr->position;
+                            float horizDistSq = diff.x * diff.x + diff.y * diff.y;
+                            if (horizDistSq > 225.0f) {
+                                gameHandler->clearPlayerTransport();
+                                LOG_DEBUG("M2 transport disembark");
+                            }
                         }
                     }
                 }
@@ -2073,7 +2140,7 @@ void Application::setupUICallbacks() {
         }
 
         uint32_t wmoInstanceId = it->second.instanceId;
-        LOG_DEBUG("Registering server transport: GUID=0x", std::hex, guid, std::dec,
+        LOG_WARNING("Registering server transport: GUID=0x", std::hex, guid, std::dec,
                  " entry=", entry, " displayId=", displayId, " wmoInstance=", wmoInstanceId,
                  " pos=(", x, ", ", y, ", ", z, ")");
 
@@ -2101,15 +2168,18 @@ void Application::setupUICallbacks() {
             hasUsablePath = transportManager->hasUsableMovingPathForEntry(entry, 25.0f);
         }
 
+        LOG_WARNING("Transport path check: entry=", entry, " hasUsablePath=", hasUsablePath,
+                 " preferServerData=", preferServerData, " shipOrZepDisplay=", shipOrZeppelinDisplay);
+
         if (preferServerData) {
             // Strict server-authoritative mode: do not infer/remap fallback routes.
             if (!hasUsablePath) {
                 std::vector<glm::vec3> path = { canonicalSpawnPos };
                 transportManager->loadPathFromNodes(pathId, path, false, 0.0f);
-                LOG_DEBUG("Server-first strict registration: stationary fallback for GUID 0x",
+                LOG_WARNING("Server-first strict registration: stationary fallback for GUID 0x",
                          std::hex, guid, std::dec, " entry=", entry);
             } else {
-                LOG_DEBUG("Server-first transport registration: using entry DBC path for entry ", entry);
+                LOG_WARNING("Server-first transport registration: using entry DBC path for entry ", entry);
             }
         } else if (!hasUsablePath) {
             // Remap/infer path by spawn position when entry doesn't map 1:1 to DBC ids.
@@ -2119,12 +2189,12 @@ void Application::setupUICallbacks() {
                 canonicalSpawnPos, 1200.0f, allowZOnly);
             if (inferredPath != 0) {
                 pathId = inferredPath;
-                LOG_DEBUG("Using inferred transport path ", pathId, " for entry ", entry);
+                LOG_WARNING("Using inferred transport path ", pathId, " for entry ", entry);
             } else {
                 uint32_t remappedPath = transportManager->pickFallbackMovingPath(entry, displayId);
                 if (remappedPath != 0) {
                     pathId = remappedPath;
-                    LOG_DEBUG("Using remapped fallback transport path ", pathId,
+                    LOG_WARNING("Using remapped fallback transport path ", pathId,
                              " for entry ", entry, " displayId=", displayId,
                              " (usableEntryPath=", transportManager->hasPathForEntry(entry), ")");
                 } else {
@@ -2137,11 +2207,18 @@ void Application::setupUICallbacks() {
                 }
             }
         } else {
-            LOG_DEBUG("Using real transport path from TransportAnimation.dbc for entry ", entry);
+            LOG_WARNING("Using real transport path from TransportAnimation.dbc for entry ", entry);
         }
 
         // Register the transport with spawn position (prevents rendering at origin until server update)
         transportManager->registerTransport(guid, wmoInstanceId, pathId, canonicalSpawnPos, entry);
+
+        // Mark M2 transports (e.g. Deeprun Tram cars) so TransportManager uses M2Renderer
+        if (!it->second.isWmo) {
+            if (auto* tr = transportManager->getTransport(guid)) {
+                tr->isM2 = true;
+            }
+        }
 
         // Server-authoritative movement - set initial position from spawn data
         glm::vec3 canonicalPos(x, y, z);
@@ -2171,7 +2248,7 @@ void Application::setupUICallbacks() {
         }
 
         if (auto* tr = transportManager->getTransport(guid); tr) {
-            LOG_DEBUG("Transport registered: guid=0x", std::hex, guid, std::dec,
+            LOG_WARNING("Transport registered: guid=0x", std::hex, guid, std::dec,
                      " entry=", entry, " displayId=", displayId,
                      " pathId=", tr->pathId,
                      " mode=", (tr->useClientAnimation ? "client" : "server"),
@@ -3458,11 +3535,7 @@ void Application::loadOnlineWorldTerrain(uint32_t mapId, float x, float y, float
         renderer->getTerrainManager()->setMapName(mapName);
     }
 
-    // Connect TransportManager to WMORenderer (for server transports)
-    if (gameHandler && gameHandler->getTransportManager() && renderer->getWMORenderer()) {
-        gameHandler->getTransportManager()->setWMORenderer(renderer->getWMORenderer());
-        LOG_INFO("TransportManager connected to WMORenderer for online mode");
-    }
+    // NOTE: TransportManager renderer connection moved to after initializeRenderers (later in this function)
 
     // Connect WMORenderer to M2Renderer (for hierarchical transforms: doodads following WMO parents)
     if (renderer->getWMORenderer() && renderer->getM2Renderer()) {
@@ -3931,9 +4004,18 @@ void Application::loadOnlineWorldTerrain(uint32_t mapId, float x, float y, float
         renderer->getCameraController()->reset();
     }
 
-    // Set up test transport (development feature)
+    // Test transport disabled — real transports come from server via UPDATEFLAG_TRANSPORT
     showProgress("Finalizing world...", 0.94f);
-    setupTestTransport();
+    // setupTestTransport();
+
+    // Connect TransportManager to renderers (must happen AFTER initializeRenderers)
+    if (gameHandler && gameHandler->getTransportManager()) {
+        auto* tm = gameHandler->getTransportManager();
+        if (renderer->getWMORenderer()) tm->setWMORenderer(renderer->getWMORenderer());
+        if (renderer->getM2Renderer()) tm->setM2Renderer(renderer->getM2Renderer());
+        LOG_WARNING("TransportManager connected: wmoR=", (renderer->getWMORenderer() ? "yes" : "NULL"),
+                   " m2R=", (renderer->getM2Renderer() ? "yes" : "NULL"));
+    }
 
     // Set up NPC animation callbacks (for online creatures)
     showProgress("Preparing creatures...", 0.97f);
@@ -6368,6 +6450,10 @@ void Application::spawnOnlineGameObject(uint64_t guid, uint32_t entry, uint32_t 
             } else if (displayId == 2454 || displayId == 181688 || displayId == 190536) {
                 modelPath = "World\\wmo\\transports\\icebreaker\\Transport_Icebreaker_ship.wmo";
                 LOG_INFO("Overriding transport displayId ", displayId, " → Transport_Icebreaker_ship.wmo");
+            } else if (displayId == 3831) {
+                // Deeprun Tram car
+                modelPath = "World\\Generic\\Gnome\\Passive Doodads\\Subway\\SubwayCar.m2";
+                LOG_WARNING("Overriding transport displayId ", displayId, " → SubwayCar.m2");
             }
         }
 
@@ -6508,7 +6594,12 @@ void Application::spawnOnlineGameObject(uint64_t guid, uint32_t entry, uint32_t 
             // Transport GameObjects are not always named "transport" in their WMO path
             // (e.g. elevators/lifts). If the server marks it as a transport, always
             // notify so TransportManager can animate/carry passengers.
-            if (gameHandler && gameHandler->isTransportGuid(guid)) {
+            bool isTG = gameHandler && gameHandler->isTransportGuid(guid);
+            LOG_WARNING("WMO GO spawned: guid=0x", std::hex, guid, std::dec,
+                       " entry=", entry, " displayId=", displayId,
+                       " isTransport=", isTG,
+                       " pos=(", x, ", ", y, ", ", z, ")");
+            if (isTG) {
                 gameHandler->notifyTransportSpawned(guid, entry, displayId, x, y, z, orientation);
             }
 
@@ -6572,18 +6663,27 @@ void Application::spawnOnlineGameObject(uint64_t guid, uint32_t entry, uint32_t 
             return;
         }
 
-        // Freeze animation for static gameobjects, but let portals/effects animate
+        // Freeze animation for static gameobjects, but let portals/effects/transports animate
+        bool isTransportGO = gameHandler && gameHandler->isTransportGuid(guid);
         std::string lowerPath = modelPath;
         std::transform(lowerPath.begin(), lowerPath.end(), lowerPath.begin(), ::tolower);
         bool isAnimatedEffect = (lowerPath.find("instanceportal") != std::string::npos ||
                                   lowerPath.find("instancenewportal") != std::string::npos ||
                                   lowerPath.find("portalfx") != std::string::npos ||
                                   lowerPath.find("spellportal") != std::string::npos);
-        if (!isAnimatedEffect) {
+        if (!isAnimatedEffect && !isTransportGO) {
             m2Renderer->setInstanceAnimationFrozen(instanceId, true);
         }
 
         gameObjectInstances_[guid] = {modelId, instanceId, false};
+
+        // Notify transport system for M2 transports (e.g. Deeprun Tram cars)
+        if (gameHandler && gameHandler->isTransportGuid(guid)) {
+            LOG_WARNING("M2 transport spawned: guid=0x", std::hex, guid, std::dec,
+                       " entry=", entry, " displayId=", displayId,
+                       " instanceId=", instanceId);
+            gameHandler->notifyTransportSpawned(guid, entry, displayId, x, y, z, orientation);
+        }
     }
 
     LOG_DEBUG("Spawned gameobject: guid=0x", std::hex, guid, std::dec,

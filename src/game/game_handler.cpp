@@ -4936,10 +4936,17 @@ void GameHandler::handleUpdateObject(network::Packet& packet) {
                             LOG_INFO("Player on transport: 0x", std::hex, playerTransportGuid_, std::dec,
                                     " offset=(", playerTransportOffset_.x, ", ", playerTransportOffset_.y, ", ", playerTransportOffset_.z, ")");
                         } else {
-                            if (playerTransportGuid_ != 0) {
-                                LOG_INFO("Player left transport");
+                            // Don't clear client-side M2 transport boarding (trams) —
+                            // the server doesn't know about client-detected transport attachment.
+                            bool isClientM2Transport = false;
+                            if (playerTransportGuid_ != 0 && transportManager_) {
+                                auto* tr = transportManager_->getTransport(playerTransportGuid_);
+                                isClientM2Transport = (tr && tr->isM2);
                             }
-                            clearPlayerTransport();
+                            if (playerTransportGuid_ != 0 && !isClientM2Transport) {
+                                LOG_INFO("Player left transport");
+                                clearPlayerTransport();
+                            }
                         }
                     }
 
@@ -5173,9 +5180,13 @@ void GameHandler::handleUpdateObject(network::Packet& packet) {
                         queryGameObjectInfo(itEntry->second, block.guid);
                     }
                     // Detect transport GameObjects via UPDATEFLAG_TRANSPORT (0x0002)
+                    LOG_WARNING("GameObject CREATE: guid=0x", std::hex, block.guid, std::dec,
+                             " entry=", go->getEntry(), " displayId=", go->getDisplayId(),
+                             " updateFlags=0x", std::hex, block.updateFlags, std::dec,
+                             " pos=(", go->getX(), ", ", go->getY(), ", ", go->getZ(), ")");
                     if (block.updateFlags & 0x0002) {
                         transportGuids_.insert(block.guid);
-                        LOG_INFO("Detected transport GameObject: 0x", std::hex, block.guid, std::dec,
+                        LOG_WARNING("Detected transport GameObject: 0x", std::hex, block.guid, std::dec,
                                  " entry=", go->getEntry(),
                                  " displayId=", go->getDisplayId(),
                                  " pos=(", go->getX(), ", ", go->getY(), ", ", go->getZ(), ")");
@@ -5691,7 +5702,13 @@ void GameHandler::handleUpdateObject(network::Packet& packet) {
                             movementInfo.x = pos.x;
                             movementInfo.y = pos.y;
                             movementInfo.z = pos.z;
-                            if (playerTransportGuid_ != 0) {
+                            // Don't clear client-side M2 transport boarding
+                            bool isClientM2Transport = false;
+                            if (playerTransportGuid_ != 0 && transportManager_) {
+                                auto* tr = transportManager_->getTransport(playerTransportGuid_);
+                                isClientM2Transport = (tr && tr->isM2);
+                            }
+                            if (playerTransportGuid_ != 0 && !isClientM2Transport) {
                                 LOG_INFO("Player left transport (MOVEMENT)");
                                 clearPlayerTransport();
                             }

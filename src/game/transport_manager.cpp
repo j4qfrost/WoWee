@@ -1,5 +1,6 @@
 #include "game/transport_manager.hpp"
 #include "rendering/wmo_renderer.hpp"
+#include "rendering/m2_renderer.hpp"
 #include "core/coordinates.hpp"
 #include "core/logger.hpp"
 #include "pipeline/dbc_loader.hpp"
@@ -80,10 +81,11 @@ void TransportManager::registerTransport(uint64_t guid, uint32_t wmoInstanceId, 
     transport.localClockMs = 0;
     transport.hasServerClock = false;
     transport.serverClockOffsetMs = 0;
-    // Default is server-authoritative movement.
-    // Exception: elevator-style transports (z-only DBC paths) often do not stream continuous
-    // movement updates from the server, but the client is expected to animate them.
-    transport.useClientAnimation = (path.fromDBC && path.zOnly && path.durationMs > 0);
+    // Start with client-side animation for all DBC paths with real movement.
+    // If the server sends actual position updates, updateServerTransport() will switch
+    // to server-driven mode. This ensures transports like trams (which the server doesn't
+    // stream updates for) still animate, while ships/zeppelins switch to server authority.
+    transport.useClientAnimation = (path.fromDBC && path.durationMs > 0);
     transport.clientAnimationReverse = false;
     transport.serverYaw = 0.0f;
     transport.hasServerYaw = false;
@@ -98,16 +100,19 @@ void TransportManager::registerTransport(uint64_t guid, uint32_t wmoInstanceId, 
     if (transport.useClientAnimation && path.durationMs > 0) {
         // Seed to a stable phase based on our local clock so elevators don't all start at t=0.
         transport.localClockMs = static_cast<uint32_t>(elapsedTime_ * 1000.0f) % path.durationMs;
-        LOG_INFO("TransportManager: Enabled client animation for z-only transport 0x",
+        LOG_INFO("TransportManager: Enabled client animation for transport 0x",
                  std::hex, guid, std::dec, " path=", pathId,
-                 " durationMs=", path.durationMs, " seedMs=", transport.localClockMs);
+                 " durationMs=", path.durationMs, " seedMs=", transport.localClockMs,
+                 (path.worldCoords ? " [worldCoords]" : (path.zOnly ? " [z-only]" : "")));
     }
 
     updateTransformMatrices(transport);
 
     // CRITICAL: Update WMO renderer with initial transform
-    if (wmoRenderer_) {
-        wmoRenderer_->setInstanceTransform(transport.wmoInstanceId, transport.transform);
+    if (transport.isM2) {
+        if (m2Renderer_) m2Renderer_->setInstanceTransform(transport.wmoInstanceId, transport.transform);
+    } else {
+        if (wmoRenderer_) wmoRenderer_->setInstanceTransform(transport.wmoInstanceId, transport.transform);
     }
 
     transports_[guid] = transport;
@@ -140,6 +145,14 @@ glm::vec3 TransportManager::getPlayerWorldPosition(uint64_t transportGuid, const
         return localOffset;  // Fallback
     }
 
+    if (transport->isM2) {
+        // M2 transports (trams): localOffset is a canonical world-space delta
+        // from the transport's canonical position. Just add directly.
+        return transport->position + localOffset;
+    }
+
+    // WMO transports (ships): localOffset is in transport-local space,
+    // use the render-space transform matrix.
     glm::vec4 localPos(localOffset, 1.0f);
     glm::vec4 worldPos = transport->transform * localPos;
     return glm::vec3(worldPos);
@@ -284,14 +297,17 @@ void TransportManager::updateTransportMovement(ActiveTransport& transport, float
     glm::vec3 pathOffset = evalTimedCatmullRom(path, pathTimeMs);
     // Guard against bad fallback Z curves on some remapped transport paths (notably icebreakers),
     // where path offsets can sink far below sea level when we only have spawn-time data.
-    if (transport.useClientAnimation && transport.serverUpdateCount <= 1) {
-        constexpr float kMinFallbackZOffset = -2.0f;
-        pathOffset.z = glm::max(pathOffset.z, kMinFallbackZOffset);
-    }
-    if (!transport.useClientAnimation && !transport.hasServerClock) {
-        constexpr float kMinFallbackZOffset = -2.0f;
-        constexpr float kMaxFallbackZOffset = 8.0f;
-        pathOffset.z = glm::clamp(pathOffset.z, kMinFallbackZOffset, kMaxFallbackZOffset);
+    // Skip Z clamping for world-coordinate paths (TaxiPathNode) where values are absolute positions.
+    if (!path.worldCoords) {
+        if (transport.useClientAnimation && transport.serverUpdateCount <= 1) {
+            constexpr float kMinFallbackZOffset = -2.0f;
+            pathOffset.z = glm::max(pathOffset.z, kMinFallbackZOffset);
+        }
+        if (!transport.useClientAnimation && !transport.hasServerClock) {
+            constexpr float kMinFallbackZOffset = -2.0f;
+            constexpr float kMaxFallbackZOffset = 8.0f;
+            pathOffset.z = glm::clamp(pathOffset.z, kMinFallbackZOffset, kMaxFallbackZOffset);
+        }
     }
     transport.position = transport.basePosition + pathOffset;
 
@@ -307,24 +323,20 @@ void TransportManager::updateTransportMovement(ActiveTransport& transport, float
     updateTransformMatrices(transport);
 
     // Update WMO instance position
-    if (wmoRenderer_) {
-        wmoRenderer_->setInstanceTransform(transport.wmoInstanceId, transport.transform);
+    if (transport.isM2) {
+        if (m2Renderer_) m2Renderer_->setInstanceTransform(transport.wmoInstanceId, transport.transform);
+    } else {
+        if (wmoRenderer_) wmoRenderer_->setInstanceTransform(transport.wmoInstanceId, transport.transform);
     }
 
-    // Debug logging every 120 frames (~2 seconds at 60fps)
+    // Debug logging every 600 frames (~10 seconds at 60fps)
     static int debugFrameCount = 0;
-    if (debugFrameCount++ % 120 == 0) {
-        // Log canonical position AND render position to check coordinate conversion
-        glm::vec3 renderPos = core::coords::canonicalToRender(transport.position);
+    if (debugFrameCount++ % 600 == 0) {
         LOG_DEBUG("Transport 0x", std::hex, transport.guid, std::dec,
                  " pathTime=", pathTimeMs, "ms / ", path.durationMs, "ms",
-                 " canonicalPos=(", transport.position.x, ", ", transport.position.y, ", ", transport.position.z, ")",
-                 " renderPos=(", renderPos.x, ", ", renderPos.y, ", ", renderPos.z, ")",
-                 " basePos=(", transport.basePosition.x, ", ", transport.basePosition.y, ", ", transport.basePosition.z, ")",
-                 " pathOffset=(", pathOffset.x, ", ", pathOffset.y, ", ", pathOffset.z, ")",
+                 " pos=(", transport.position.x, ", ", transport.position.y, ", ", transport.position.z, ")",
                  " mode=", (transport.useClientAnimation ? "client" : "server"),
-                 " hasServerClock=", transport.hasServerClock,
-                 " offset=", transport.serverClockOffsetMs, "ms");
+                 " isM2=", transport.isM2);
     }
 }
 
@@ -561,12 +573,24 @@ void TransportManager::updateServerTransport(uint64_t guid, const glm::vec3& pos
     // Track server updates
     transport->serverUpdateCount++;
     transport->lastServerUpdate = elapsedTime_;
-    // Server updates take precedence for moving XY transports, but z-only elevators should
-    // remain client-animated (server may only send sparse state updates).
-    if (!isZOnlyPath) {
-        transport->useClientAnimation = false;
-    } else {
+    // Z-only elevators and world-coordinate paths (TaxiPathNode) always stay client-driven.
+    // For other DBC paths (trams, ships): only switch to server-driven mode when the server
+    // sends a position that actually differs from the current position, indicating it's
+    // actively streaming movement data (not just echoing the spawn position).
+    if (isZOnlyPath || isWorldCoordPath) {
         transport->useClientAnimation = true;
+    } else if (transport->useClientAnimation && hasPath && pathIt->second.fromDBC) {
+        float posDelta = glm::length(position - transport->position);
+        if (posDelta > 1.0f) {
+            // Server sent a meaningfully different position — it's actively driving this transport
+            transport->useClientAnimation = false;
+            LOG_INFO("Transport 0x", std::hex, guid, std::dec,
+                     " switching to server-driven (posDelta=", posDelta, ")");
+        }
+        // Otherwise keep client animation (server just echoed spawn pos or sent small jitter)
+    } else if (!hasPath || !pathIt->second.fromDBC) {
+        // No DBC path — purely server-driven
+        transport->useClientAnimation = false;
     }
     transport->clientAnimationReverse = false;
 
@@ -576,8 +600,10 @@ void TransportManager::updateServerTransport(uint64_t guid, const glm::vec3& pos
         transport->position = position;
         transport->rotation = glm::angleAxis(orientation, glm::vec3(0.0f, 0.0f, 1.0f));
         updateTransformMatrices(*transport);
-        if (wmoRenderer_) {
-            wmoRenderer_->setInstanceTransform(transport->wmoInstanceId, transport->transform);
+        if (transport->isM2) {
+            if (m2Renderer_) m2Renderer_->setInstanceTransform(transport->wmoInstanceId, transport->transform);
+        } else {
+            if (wmoRenderer_) wmoRenderer_->setInstanceTransform(transport->wmoInstanceId, transport->transform);
         }
         return;
     }
@@ -846,12 +872,23 @@ bool TransportManager::loadTransportAnimationDBC(pipeline::AssetManager* assetMg
         std::vector<TimedPoint> timedPoints;
         timedPoints.reserve(sortedWaypoints.size() + 1);  // +1 for wrap point
 
-        // Log first few waypoints for transport 2074 to see conversion
+        // Log DBC waypoints for tram entries
+        if (transportEntry >= 176080 && transportEntry <= 176085) {
+            size_t mid = sortedWaypoints.size() / 4;  // ~quarter through
+            size_t mid2 = sortedWaypoints.size() / 2; // ~halfway
+            LOG_WARNING("DBC path entry=", transportEntry, " nPts=", sortedWaypoints.size(),
+                       " [0] t=", sortedWaypoints[0].first, " raw=(", sortedWaypoints[0].second.x, ",", sortedWaypoints[0].second.y, ",", sortedWaypoints[0].second.z, ")",
+                       " [", mid, "] t=", sortedWaypoints[mid].first, " raw=(", sortedWaypoints[mid].second.x, ",", sortedWaypoints[mid].second.y, ",", sortedWaypoints[mid].second.z, ")",
+                       " [", mid2, "] t=", sortedWaypoints[mid2].first, " raw=(", sortedWaypoints[mid2].second.x, ",", sortedWaypoints[mid2].second.y, ",", sortedWaypoints[mid2].second.z, ")");
+        }
+
         for (size_t idx = 0; idx < sortedWaypoints.size(); idx++) {
             const auto& [tMs, pos] = sortedWaypoints[idx];
 
-            // TransportAnimation.dbc uses server coordinates - convert to canonical
-            glm::vec3 canonical = core::coords::serverToCanonical(pos);
+            // TransportAnimation.dbc local offsets use a coordinate system where
+            // the travel axis is negated relative to server world coords.
+            // Negate X and Y before converting to canonical (Z=height stays the same).
+            glm::vec3 canonical = core::coords::serverToCanonical(glm::vec3(-pos.x, -pos.y, pos.z));
 
             // CRITICAL: Detect if serverToCanonical is zeroing nonzero inputs
             if ((pos.x != 0.0f || pos.y != 0.0f || pos.z != 0.0f) &&
@@ -896,7 +933,8 @@ bool TransportManager::loadTransportAnimationDBC(pipeline::AssetManager* assetMg
 
         // Add duplicate first point at end with wrap duration
         // This makes the wrap segment (last → first) have proper duration
-        glm::vec3 firstCanonical = core::coords::serverToCanonical(sortedWaypoints.front().second);
+        const auto& fp = sortedWaypoints.front().second;
+        glm::vec3 firstCanonical = core::coords::serverToCanonical(glm::vec3(-fp.x, -fp.y, fp.z));
         timedPoints.push_back({lastTimeMs + wrapMs, firstCanonical});
 
         uint32_t durationMs = lastTimeMs + wrapMs;

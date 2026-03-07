@@ -658,6 +658,9 @@ public:
         playerTransportStickyTimer_ = 8.0f;
         movementInfo.transportGuid = transportGuid;
     }
+    void setPlayerTransportOffset(const glm::vec3& offset) {
+        playerTransportOffset_ = offset;
+    }
     void clearPlayerTransport() {
         if (playerTransportGuid_ != 0) {
             playerTransportStickyGuid_ = playerTransportGuid_;
