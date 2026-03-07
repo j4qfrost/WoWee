@@ -596,19 +596,25 @@ bool WMORenderer::loadModel(const pipeline::WMOModel& model, uint32_t id) {
             // so we additionally check for "window" or "glass" in the texture path to
             // distinguish actual glass from lamp post geometry.
             bool isWindow = false;
+            bool isLava = false;
             if (batch.materialId < modelData.materialTextureIndices.size()) {
                 uint32_t ti = modelData.materialTextureIndices[batch.materialId];
                 if (ti < modelData.textureNames.size()) {
                     const auto& texName = modelData.textureNames[ti];
-                    // Case-insensitive search for "window" or "glass"
+                    // Case-insensitive search for material types
                     std::string texNameLower = texName;
                     std::transform(texNameLower.begin(), texNameLower.end(), texNameLower.begin(), ::tolower);
                     isWindow = (texNameLower.find("window") != std::string::npos ||
                                 texNameLower.find("glass") != std::string::npos);
+                    isLava = (texNameLower.find("lava") != std::string::npos ||
+                              texNameLower.find("molten") != std::string::npos ||
+                              texNameLower.find("magma") != std::string::npos);
+                    if (isLava) {
+                        LOG_WARNING("WMO LAVA BATCH: tex='", texName, "' matId=", batch.materialId,
+                                 " blend=", blendMode, " flags=0x", std::hex, matFlags, std::dec);
+                    }
                 }
             }
-
-
 
             BatchKey key{ reinterpret_cast<uintptr_t>(tex), alphaTest, unlit, isWindow };
             auto& mb = batchMap[key];
@@ -619,6 +625,7 @@ bool WMORenderer::loadModel(const pipeline::WMOModel& model, uint32_t id) {
                 mb.unlit = unlit;
                 mb.isTransparent = (blendMode >= 2);
                 mb.isWindow = isWindow;
+                mb.isLava = isLava;
                 // Look up normal/height map from texture cache
                 if (hasTexture && tex != whiteTexture_.get()) {
                     for (const auto& [cacheKey, cacheEntry] : textureCache) {
@@ -668,6 +675,7 @@ bool WMORenderer::loadModel(const pipeline::WMOModel& model, uint32_t id) {
             }
             matData.heightMapVariance = mb.heightMapVariance;
             matData.normalMapStrength = normalMapStrength_;
+            matData.isLava = mb.isLava ? 1 : 0;
             if (matBuf.info.pMappedData) {
                 memcpy(matBuf.info.pMappedData, &matData, sizeof(matData));
             }
@@ -789,6 +797,7 @@ bool WMORenderer::loadModel(const pipeline::WMOModel& model, uint32_t id) {
             doodadTemplate.m2Path = m2Path;
             doodadTemplate.localTransform = localTransform;
             modelData.doodadTemplates.push_back(doodadTemplate);
+
         }
 
         if (!modelData.doodadTemplates.empty()) {

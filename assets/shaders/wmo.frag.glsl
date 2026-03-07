@@ -28,6 +28,7 @@ layout(set = 1, binding = 1) uniform WMOMaterial {
     int pomMaxSamples;
     float heightMapVariance;
     float normalMapStrength;
+    int isLava;
 };
 
 layout(set = 1, binding = 2) uniform sampler2D uNormalHeightMap;
@@ -120,6 +121,14 @@ void main() {
     // Compute final UV (with POM if enabled)
     vec2 finalUV = TexCoord;
 
+    // Lava/magma: scroll UVs for flowing effect
+    if (isLava != 0) {
+        float time = fogParams.z;
+        // Scroll both axes — pools get horizontal flow, waterfalls get vertical flow
+        // (UV orientation depends on mesh, so animate both)
+        finalUV += vec2(time * 0.04, time * 0.06);
+    }
+
     // Build TBN matrix
     vec3 T = normalize(Tangent);
     vec3 B = normalize(Bitangent);
@@ -170,7 +179,10 @@ void main() {
         shadow = mix(1.0, shadow, shadowParams.y);
     }
 
-    if (unlit != 0) {
+    if (isLava != 0) {
+        // Lava is self-luminous — bright emissive, no shadows
+        result = texColor.rgb * 1.5;
+    } else if (unlit != 0) {
         result = texColor.rgb * shadow;
     } else if (isInterior != 0) {
         vec3 mocv = max(VertColor.rgb, vec3(0.5));

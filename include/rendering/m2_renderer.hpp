@@ -119,6 +119,7 @@ struct M2ModelGPU {
     bool isElvenLike = false;       // Model name matches elf/elven/quel (precomputed)
     bool isLanternLike = false;     // Model name matches lantern/lamp/light (precomputed)
     bool isKoboldFlame = false;     // Model name matches kobold+(candle/torch/mine) (precomputed)
+    bool isLavaModel = false;       // Model name contains lava/molten/magma (UV scroll fallback)
     bool hasTextureAnimation = false; // True if any batch has UV animation
 
     // Particle emitter data (kept from M2Model)

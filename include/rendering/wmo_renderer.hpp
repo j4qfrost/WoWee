@@ -340,7 +340,9 @@ private:
         int32_t pomMaxSamples;     // 36 (max ray-march steps)
         float heightMapVariance;   // 40 (low variance = skip POM)
         float normalMapStrength;   // 44 (0=flat, 1=full, 2=exaggerated)
-    };  // 48 bytes total
+        int32_t isLava;            // 48 (1=lava/magma UV scroll)
+        float pad[3];              // 52-60 padding to 64 bytes
+    };  // 64 bytes total
 
     /**
      * WMO group GPU resources
@@ -380,6 +382,7 @@ private:
             bool unlit = false;
             bool isTransparent = false;     // blendMode >= 2
             bool isWindow = false;          // F_SIDN or F_WINDOW material
+            bool isLava = false;            // lava/magma texture (UV scroll)
             // For multi-draw: store index ranges
             struct DrawRange { uint32_t firstIndex; uint32_t indexCount; };
             std::vector<DrawRange> draws;

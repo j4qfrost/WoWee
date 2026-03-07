@@ -544,9 +544,14 @@ void WaterRenderer::updateMaterialUBO(WaterSurface& surface) {
     // WMO liquid material override
     if (surface.wmoId != 0) {
         const uint8_t basicType = (surface.liquidType == 0) ? 0 : ((surface.liquidType - 1) % 4);
-        if (basicType == 2 || basicType == 3) {
-            color = glm::vec4(0.2f, 0.4f, 0.6f, 1.0f);
-            alpha = 0.45f;
+        if (basicType == 2) {
+            // Magma — bright orange-red, opaque
+            color = glm::vec4(1.0f, 0.35f, 0.05f, 1.0f);
+            alpha = 0.95f;
+        } else if (basicType == 3) {
+            // Slime — green, semi-opaque
+            color = glm::vec4(0.2f, 0.6f, 0.1f, 1.0f);
+            alpha = 0.85f;
         }
     }
 
@@ -935,7 +940,7 @@ void WaterRenderer::loadFromWMO([[maybe_unused]] const pipeline::WMOLiquid& liqu
     surface.origin.z = adjustedZ;
     surface.position.z = adjustedZ;
 
-    if (surface.origin.z > 300.0f || surface.origin.z < -100.0f) return;
+    if (surface.origin.z > 2000.0f || surface.origin.z < -500.0f) return;
 
     // Build tile mask from MLIQ flags and per-vertex heights
     size_t tileCount = static_cast<size_t>(surface.width) * static_cast<size_t>(surface.height);

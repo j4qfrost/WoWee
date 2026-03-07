@@ -1131,10 +1131,32 @@ bool M2Renderer::loadModel(const pipeline::M2Model& model, uint32_t modelId) {
         (lowerName.find("hazardlight") != std::string::npos) ||
         (lowerName.find("lavasplash") != std::string::npos) ||
         (lowerName.find("lavabubble") != std::string::npos) ||
+        (lowerName.find("lavasteam") != std::string::npos) ||
         (lowerName.find("wisps") != std::string::npos);
     gpuModel.isSpellEffect = effectByName ||
                               (hasParticles && model.vertices.size() <= 200 &&
                                model.particleEmitters.size() >= 3);
+    gpuModel.isLavaModel =
+        (lowerName.find("forgelava") != std::string::npos) ||
+        (lowerName.find("lavapot") != std::string::npos) ||
+        (lowerName.find("lavaflow") != std::string::npos);
+    if (lowerName.find("lava") != std::string::npos || lowerName.find("steam") != std::string::npos) {
+        LOG_WARNING("M2 LAVA/STEAM: '", model.name, "' isSpellEffect=", gpuModel.isSpellEffect ? "Y" : "N",
+                 " effectByName=", effectByName ? "Y" : "N",
+                 " particles=", model.particleEmitters.size(),
+                 " verts=", model.vertices.size(),
+                 " batches=", model.batches.size(),
+                 " texTransforms=", model.textureTransforms.size(),
+                 " texTransformLookup=", model.textureTransformLookup.size(),
+                 " isLavaModel=", gpuModel.isLavaModel ? "Y" : "N");
+        for (size_t bi = 0; bi < model.batches.size(); bi++) {
+            const auto& b = model.batches[bi];
+            uint8_t bm = (b.materialIndex < model.materials.size()) ? model.materials[b.materialIndex].blendMode : 255;
+            uint16_t mf = (b.materialIndex < model.materials.size()) ? model.materials[b.materialIndex].flags : 0;
+            LOG_WARNING("  batch[", bi, "]: blend=", (int)bm, " matFlags=0x", std::hex, mf, std::dec,
+                       " texAnimIdx=", b.textureAnimIndex, " idxCount=", b.indexCount);
+        }
+    }
     gpuModel.isInstancePortal =
         (lowerName.find("instanceportal") != std::string::npos) ||
         (lowerName.find("instancenewportal") != std::string::npos) ||
@@ -2357,6 +2379,9 @@ void M2Renderer::render(VkCommandBuffer cmd, VkDescriptorSet perFrameSet, const 
         }
 
         const bool foliageLikeModel = model.isFoliageLike;
+        // Particle-dominant spell effects: mesh is emission geometry, render dim
+        const bool particleDominantEffect = model.isSpellEffect &&
+            !model.particleEmitters.empty() && model.batches.size() <= 2;
         for (const auto& batch : model.batches) {
             if (batch.indexCount == 0) continue;
             if (!model.isGroundDetail && batch.submeshLevel != targetLOD) continue;
@@ -2420,6 +2445,12 @@ void M2Renderer::render(VkCommandBuffer cmd, VkDescriptorSet perFrameSet, const 
                         uvOffset = glm::vec2(trans.x, trans.y);
                     }
                 }
+            }
+            // Lava M2 models: fallback UV scroll if no texture animation
+            if (model.isLavaModel && uvOffset == glm::vec2(0.0f)) {
+                static auto startTime = std::chrono::steady_clock::now();
+                float t = std::chrono::duration<float>(std::chrono::steady_clock::now() - startTime).count();
+                uvOffset = glm::vec2(t * 0.03f, -t * 0.08f);
             }
 
             // Foliage/card-like batches render more stably as cutout (depth-write on)
@@ -2498,6 +2529,10 @@ void M2Renderer::render(VkCommandBuffer cmd, VkDescriptorSet perFrameSet, const 
             pc.useBones = useBones ? 1 : 0;
             pc.isFoliage = model.shadowWindFoliage ? 1 : 0;
             pc.fadeAlpha = instanceFadeAlpha;
+            // Particle-dominant effects: mesh is emission geometry, don't render
+            if (particleDominantEffect && batch.blendMode <= 1) {
+                continue;
+            }
             vkCmdPushConstants(cmd, pipelineLayout_, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(pc), &pc);
 
             vkCmdDrawIndexed(cmd, batch.indexCount, 1, batch.indexStart, 0, 0);
@@ -2948,8 +2983,23 @@ void M2Renderer::emitParticles(M2Instance& inst, const M2ModelGPU& gpu, float dt
     std::uniform_real_distribution<float> distN(-1.0f, 1.0f);
     std::uniform_int_distribution<int> distTile;
 
+    static uint32_t steamDiagCounter = 0;
+    bool steamDiag = (gpu.isSpellEffect && gpu.particleEmitters.size() >= 6 && steamDiagCounter < 3);
+
     for (size_t ei = 0; ei < gpu.particleEmitters.size(); ei++) {
         const auto& em = gpu.particleEmitters[ei];
+        if (steamDiag) {
+            float rate = interpFloat(em.emissionRate, inst.animTime, inst.currentSequenceIndex,
+                                      gpu.sequences, gpu.globalSequenceDurations);
+            float life = interpFloat(em.lifespan, inst.animTime, inst.currentSequenceIndex,
+                                      gpu.sequences, gpu.globalSequenceDurations);
+            LOG_WARNING("STEAM PARTICLE DIAG emitter[", ei, "]: enabled=", em.enabled ? "Y" : "N",
+                       " rate=", rate, " life=", life,
+                       " animTime=", inst.animTime, " seq=", inst.currentSequenceIndex,
+                       " bone=", em.bone, " blendType=", (int)em.blendingType,
+                       " globalSeq=", em.emissionRate.globalSequence,
+                       " rateSeqs=", em.emissionRate.sequences.size());
+        }
         if (!em.enabled) continue;
 
         float rate = interpFloat(em.emissionRate, inst.animTime, inst.currentSequenceIndex,
@@ -3037,6 +3087,12 @@ void M2Renderer::emitParticles(M2Instance& inst, const M2ModelGPU& gpu, float dt
         if (inst.emitterAccumulators[ei] > 2.0f) {
             inst.emitterAccumulators[ei] = 0.0f;
         }
+    }
+    if (steamDiag) {
+        LOG_WARNING("STEAM PARTICLE DIAG: totalParticles=", inst.particles.size(),
+                   " sequences=", gpu.sequences.size(),
+                   " globalSeqDurations=", gpu.globalSequenceDurations.size());
+        steamDiagCounter++;
     }
 }
 

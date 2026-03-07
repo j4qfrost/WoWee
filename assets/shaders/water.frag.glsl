@@ -155,6 +155,52 @@ void main() {
     float time = fogParams.z;
     float basicType = push.liquidBasicType;
 
+    // ============================================================
+    // Magma / Slime — self-luminous flowing surfaces, skip water path
+    // ============================================================
+    if (basicType > 1.5) {
+        float dist = length(viewPos.xyz - FragPos);
+        vec2 flowUV = FragPos.xy;
+
+        bool isMagma = basicType < 2.5;
+
+        // Multi-octave flowing noise for organic lava look
+        float n1 = fbmNoise(flowUV * 0.06 + vec2(time * 0.02, time * 0.03), time * 0.4);
+        float n2 = fbmNoise(flowUV * 0.10 + vec2(-time * 0.015, time * 0.025), time * 0.3);
+        float n3 = noiseValue(flowUV * 0.25 + vec2(time * 0.04, -time * 0.02));
+        float flow = n1 * 0.45 + n2 * 0.35 + n3 * 0.20;
+
+        // Dark crust vs bright molten core
+        vec3 crustColor, hotColor, coreColor;
+        if (isMagma) {
+            crustColor = vec3(0.15, 0.04, 0.01);   // dark cooled rock
+            hotColor   = vec3(1.0, 0.45, 0.05);     // orange molten
+            coreColor  = vec3(1.0, 0.85, 0.3);      // bright yellow-white core
+        } else {
+            crustColor = vec3(0.05, 0.15, 0.02);
+            hotColor   = vec3(0.3, 0.8, 0.15);
+            coreColor  = vec3(0.5, 1.0, 0.3);
+        }
+
+        // Three-tier color: crust → molten → hot core
+        float crustMask = smoothstep(0.25, 0.50, flow);
+        float coreMask  = smoothstep(0.60, 0.80, flow);
+        vec3 color = mix(crustColor, hotColor, crustMask);
+        color = mix(color, coreColor, coreMask);
+
+        // Subtle pulsing emissive glow
+        float pulse = 1.0 + 0.15 * sin(time * 1.5 + flow * 6.0);
+        color *= pulse;
+
+        // Emissive brightening for hot areas
+        color *= 1.0 + coreMask * 0.6;
+
+        float fogFactor = clamp((fogParams.y - dist) / (fogParams.y - fogParams.x), 0.0, 1.0);
+        color = mix(fogColor.rgb, color, fogFactor);
+        outColor = vec4(color, 0.97);
+        return;
+    }
+
     vec2 screenUV = gl_FragCoord.xy / vec2(textureSize(SceneColor, 0));
 
     // --- Normal computation ---
