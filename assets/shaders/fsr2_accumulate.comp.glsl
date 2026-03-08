@@ -81,8 +81,15 @@ void main() {
 
     vec2 outUV = (vec2(outPixel) + 0.5) * pc.displaySize.zw;
 
-    // Bicubic upsampling with anti-ringing: sharp without edge halos
-    vec3 currentColor = sampleBicubic(sceneColor, outUV, pc.internalSize.xy);
+    // De-jitter: the scene was rendered with sub-pixel jitter, effectively
+    // shifting the internal image by jitterUV. Sampling at (outUV - jitterUV)
+    // undoes this shift, reconstructing the scene at the output pixel's true
+    // unjittered position. This makes the sampled value consistent across
+    // frames, eliminating the primary source of temporal jitter.
+    vec2 jitterUV = pc.jitterOffset.xy * 0.5;
+    vec2 dejitteredUV = outUV - jitterUV;
+
+    vec3 currentColor = sampleBicubic(sceneColor, dejitteredUV, pc.internalSize.xy);
 
     if (pc.params.x > 0.5) {
         imageStore(historyOutput, outPixel, vec4(currentColor, 1.0));
@@ -114,18 +121,18 @@ void main() {
 
     vec3 historyColor = texture(historyInput, historyUV).rgb;
 
-    // Neighborhood clamping in YCoCg space with wide gamma.
-    // Wide gamma (3.0) prevents jitter-chasing: the clamp box only catches
-    // truly stale history (disocclusion), not normal jitter variation.
+    // Neighborhood clamping in YCoCg space at de-jittered positions.
+    // De-jittered neighborhood is stable across frames, preventing
+    // the clamp box from chasing jitter.
     vec3 s0 = rgbToYCoCg(currentColor);
-    vec3 s1 = rgbToYCoCg(texture(sceneColor, outUV + vec2(-texelSize.x, 0.0)).rgb);
-    vec3 s2 = rgbToYCoCg(texture(sceneColor, outUV + vec2( texelSize.x, 0.0)).rgb);
-    vec3 s3 = rgbToYCoCg(texture(sceneColor, outUV + vec2(0.0, -texelSize.y)).rgb);
-    vec3 s4 = rgbToYCoCg(texture(sceneColor, outUV + vec2(0.0,  texelSize.y)).rgb);
-    vec3 s5 = rgbToYCoCg(texture(sceneColor, outUV + vec2(-texelSize.x, -texelSize.y)).rgb);
-    vec3 s6 = rgbToYCoCg(texture(sceneColor, outUV + vec2( texelSize.x, -texelSize.y)).rgb);
-    vec3 s7 = rgbToYCoCg(texture(sceneColor, outUV + vec2(-texelSize.x,  texelSize.y)).rgb);
-    vec3 s8 = rgbToYCoCg(texture(sceneColor, outUV + vec2( texelSize.x,  texelSize.y)).rgb);
+    vec3 s1 = rgbToYCoCg(texture(sceneColor, dejitteredUV + vec2(-texelSize.x, 0.0)).rgb);
+    vec3 s2 = rgbToYCoCg(texture(sceneColor, dejitteredUV + vec2( texelSize.x, 0.0)).rgb);
+    vec3 s3 = rgbToYCoCg(texture(sceneColor, dejitteredUV + vec2(0.0, -texelSize.y)).rgb);
+    vec3 s4 = rgbToYCoCg(texture(sceneColor, dejitteredUV + vec2(0.0,  texelSize.y)).rgb);
+    vec3 s5 = rgbToYCoCg(texture(sceneColor, dejitteredUV + vec2(-texelSize.x, -texelSize.y)).rgb);
+    vec3 s6 = rgbToYCoCg(texture(sceneColor, dejitteredUV + vec2( texelSize.x, -texelSize.y)).rgb);
+    vec3 s7 = rgbToYCoCg(texture(sceneColor, dejitteredUV + vec2(-texelSize.x,  texelSize.y)).rgb);
+    vec3 s8 = rgbToYCoCg(texture(sceneColor, dejitteredUV + vec2( texelSize.x,  texelSize.y)).rgb);
 
     vec3 m1 = s0 + s1 + s2 + s3 + s4 + s5 + s6 + s7 + s8;
     vec3 m2 = s0*s0 + s1*s1 + s2*s2 + s3*s3 + s4*s4 + s5*s5 + s6*s6 + s7*s7 + s8*s8;
@@ -133,10 +140,7 @@ void main() {
     vec3 variance = max(m2 / 9.0 - mean * mean, vec3(0.0));
     vec3 stddev = sqrt(variance);
 
-    // Tighter clamp (gamma 1.5) catches slightly misaligned history that
-    // causes doubling. With jitter-aware blending providing stability,
-    // the clamp can be tight without causing jitter-chasing.
-    float gamma = 1.5;
+    float gamma = 2.0;
     vec3 boxMin = mean - gamma * stddev;
     vec3 boxMax = mean + gamma * stddev;
 
@@ -146,28 +150,10 @@ void main() {
 
     float clampDist = length(historyYCoCg - clampedHistory);
 
-    // Jitter-aware sample weighting: compute how close the current frame's
-    // jittered sample fell to this output pixel. Close samples are high quality
-    // (blend aggressively for fast convergence), distant samples are low quality
-    // (blend minimally to avoid visible jitter).
-    vec2 jitterPx = pc.jitterOffset.xy * 0.5 * pc.internalSize.xy;
-    vec2 internalPos = outUV * pc.internalSize.xy;
-    vec2 subPixelOffset = fract(internalPos) - 0.5;
-    vec2 sampleDelta = subPixelOffset - jitterPx;
-    float dist2 = dot(sampleDelta, sampleDelta);
-    float sampleQuality = exp(-dist2 * 3.0);
-    float baseBlend = mix(0.02, 0.20, sampleQuality);
-
-    // Luminance instability: when current frame differs significantly from
-    // history, it may be aliased/flickering content. Reduce blend to prevent
-    // oscillation, especially for small distant features.
-    float lumCurrent = dot(currentColor, vec3(0.299, 0.587, 0.114));
-    float lumHistory = dot(historyColor, vec3(0.299, 0.587, 0.114));
-    float lumDelta = abs(lumCurrent - lumHistory) / max(max(lumCurrent, lumHistory), 0.01);
-    float stability = 1.0 - clamp(lumDelta * 3.0, 0.0, 0.7);
-    baseBlend *= stability;
-
-    float blendFactor = baseBlend;
+    // With de-jittered sampling, the reconstructed value is consistent across
+    // frames, so a uniform blend rate works without causing visible jitter.
+    // 8% gives ~28 frames for 90% convergence (~0.5s at 60fps).
+    float blendFactor = 0.08;
 
     // Disocclusion: large clamp distance → rapidly replace stale history
     blendFactor = mix(blendFactor, 0.60, clamp(clampDist * 5.0, 0.0, 1.0));

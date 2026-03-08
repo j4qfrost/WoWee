@@ -4042,7 +4042,7 @@ void Application::loadOnlineWorldTerrain(uint32_t mapId, float x, float y, float
             // then restore the full radius after entering the game.
             // This matches WoW's behavior: load quickly, stream the rest in-game.
             const int savedLoadRadius = 4;
-            terrainMgr->setLoadRadius(1);
+            terrainMgr->setLoadRadius(2);   // 5x5=25 tiles — balance between spawn hitches and load time
             terrainMgr->setUnloadRadius(7);
 
             // Trigger tile streaming for surrounding area
@@ -4080,11 +4080,9 @@ void Application::loadOnlineWorldTerrain(uint32_t mapId, float x, float y, float
                 // Trigger new streaming — enqueue tiles for background workers
                 terrainMgr->update(*camera, 0.016f);
 
-                // Process ALL available ready tiles per iteration — batches GPU
-                // uploads into a single command buffer + fence wait instead of
-                // one fence per tile.  Loading screen still updates between
-                // iterations while workers parse more tiles.
-                terrainMgr->processAllReadyTiles();
+                // Process ONE tile per iteration so the progress bar updates
+                // smoothly between tiles instead of stalling on large batches.
+                terrainMgr->processOneReadyTile();
 
                 int remaining = terrainMgr->getRemainingTileCount();
                 int loaded = terrainMgr->getLoadedTileCount();
