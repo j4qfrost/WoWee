@@ -6281,7 +6281,13 @@ void GameScreen::renderSettingsWindow() {
                 }
                 {
                     const char* aaLabels[] = { "Off", "2x MSAA", "4x MSAA", "8x MSAA" };
-                    if (ImGui::Combo("Anti-Aliasing", &pendingAntiAliasing, aaLabels, 4)) {
+                    bool fsr2Active = renderer && renderer->isFSR2Enabled();
+                    if (fsr2Active) {
+                        ImGui::BeginDisabled();
+                        int disabled = 0;
+                        ImGui::Combo("Anti-Aliasing (FSR2)", &disabled, "Off (FSR2 active)\0", 1);
+                        ImGui::EndDisabled();
+                    } else if (ImGui::Combo("Anti-Aliasing", &pendingAntiAliasing, aaLabels, 4)) {
                         static const VkSampleCountFlagBits aaSamples[] = {
                             VK_SAMPLE_COUNT_1_BIT, VK_SAMPLE_COUNT_2_BIT,
                             VK_SAMPLE_COUNT_4_BIT, VK_SAMPLE_COUNT_8_BIT

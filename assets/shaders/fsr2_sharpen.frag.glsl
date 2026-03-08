@@ -10,16 +10,20 @@ layout(push_constant) uniform PushConstants {
 } pc;
 
 void main() {
+    // Undo the vertex shader Y flip (postprocess.vert flips for Vulkan overlay,
+    // but we need standard UV coords for texture sampling)
+    vec2 tc = vec2(TexCoord.x, 1.0 - TexCoord.y);
+
     vec2 texelSize = pc.params.xy;
     float sharpness = pc.params.z;
 
     // RCAS: Robust Contrast-Adaptive Sharpening
     // 5-tap cross pattern
-    vec3 center = texture(inputImage, TexCoord).rgb;
-    vec3 north  = texture(inputImage, TexCoord + vec2(0.0, -texelSize.y)).rgb;
-    vec3 south  = texture(inputImage, TexCoord + vec2(0.0,  texelSize.y)).rgb;
-    vec3 west   = texture(inputImage, TexCoord + vec2(-texelSize.x, 0.0)).rgb;
-    vec3 east   = texture(inputImage, TexCoord + vec2( texelSize.x, 0.0)).rgb;
+    vec3 center = texture(inputImage, tc).rgb;
+    vec3 north  = texture(inputImage, tc + vec2(0.0, -texelSize.y)).rgb;
+    vec3 south  = texture(inputImage, tc + vec2(0.0,  texelSize.y)).rgb;
+    vec3 west   = texture(inputImage, tc + vec2(-texelSize.x, 0.0)).rgb;
+    vec3 east   = texture(inputImage, tc + vec2( texelSize.x, 0.0)).rgb;
 
     // Compute local contrast (min/max of neighborhood)
     vec3 minRGB = min(center, min(min(north, south), min(west, east)));

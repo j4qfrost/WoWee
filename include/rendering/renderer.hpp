@@ -408,7 +408,7 @@ private:
         VkPipelineLayout sharpenPipelineLayout = VK_NULL_HANDLE;
         VkDescriptorSetLayout sharpenDescSetLayout = VK_NULL_HANDLE;
         VkDescriptorPool sharpenDescPool = VK_NULL_HANDLE;
-        VkDescriptorSet sharpenDescSet = VK_NULL_HANDLE;
+        VkDescriptorSet sharpenDescSets[2] = {};
 
         // Previous frame state for motion vector reprojection
         glm::mat4 prevViewProjection = glm::mat4(1.0f);

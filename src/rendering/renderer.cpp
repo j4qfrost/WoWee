@@ -876,6 +876,9 @@ bool Renderer::isWaterRefractionEnabled() const {
 void Renderer::setMsaaSamples(VkSampleCountFlagBits samples) {
     if (!vkCtx) return;
 
+    // FSR2 requires non-MSAA render pass — block MSAA changes while FSR2 is active
+    if (fsr2_.enabled && samples > VK_SAMPLE_COUNT_1_BIT) return;
+
     // Clamp to device maximum
     VkSampleCountFlagBits maxSamples = vkCtx->getMaxUsableSampleCount();
     if (samples > maxSamples) samples = maxSamples;
@@ -1178,7 +1181,7 @@ void Renderer::endFrame() {
         fsr2_.prevJitter = camera->getJitter();
         camera->clearJitter();
         fsr2_.currentHistory = 1 - fsr2_.currentHistory;
-        fsr2_.frameIndex++;
+        fsr2_.frameIndex = (fsr2_.frameIndex + 1) % 256;  // Wrap to keep Halton values well-distributed
 
     } else if (fsr_.enabled && fsr_.sceneFramebuffer) {
         // End the off-screen scene render pass
@@ -3782,7 +3785,7 @@ bool Renderer::initFSR2Resources() {
         VkPushConstantRange pc{};
         pc.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
         pc.offset = 0;
-        pc.size = 2 * sizeof(glm::mat4) + 2 * sizeof(glm::vec4);  // 160 bytes
+        pc.size = sizeof(glm::mat4) + sizeof(glm::vec4);  // 80 bytes
 
         VkPipelineLayoutCreateInfo plCI{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
         plCI.setLayoutCount = 1;
@@ -4005,20 +4008,21 @@ bool Renderer::initFSR2Resources() {
             return false;
         }
 
-        // Descriptor pool + set for sharpen pass (reads from history output)
+        // Descriptor pool + sets for sharpen pass (double-buffered to avoid race condition)
         VkDescriptorPoolSize poolSize{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 2};
         VkDescriptorPoolCreateInfo poolInfo{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
-        poolInfo.maxSets = 1;
+        poolInfo.maxSets = 2;
         poolInfo.poolSizeCount = 1;
         poolInfo.pPoolSizes = &poolSize;
         vkCreateDescriptorPool(device, &poolInfo, nullptr, &fsr2_.sharpenDescPool);
 
+        VkDescriptorSetLayout layouts[2] = {fsr2_.sharpenDescSetLayout, fsr2_.sharpenDescSetLayout};
         VkDescriptorSetAllocateInfo dsAI{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
         dsAI.descriptorPool = fsr2_.sharpenDescPool;
-        dsAI.descriptorSetCount = 1;
-        dsAI.pSetLayouts = &fsr2_.sharpenDescSetLayout;
-        vkAllocateDescriptorSets(device, &dsAI, &fsr2_.sharpenDescSet);
-        // Descriptor updated dynamically each frame to point at the correct history buffer
+        dsAI.descriptorSetCount = 2;
+        dsAI.pSetLayouts = layouts;
+        vkAllocateDescriptorSets(device, &dsAI, fsr2_.sharpenDescSets);
+        // Descriptors updated dynamically each frame to point at the correct history buffer
     }
 
     fsr2_.needsHistoryReset = true;
@@ -4036,7 +4040,7 @@ void Renderer::destroyFSR2Resources() {
 
     if (fsr2_.sharpenPipeline) { vkDestroyPipeline(device, fsr2_.sharpenPipeline, nullptr); fsr2_.sharpenPipeline = VK_NULL_HANDLE; }
     if (fsr2_.sharpenPipelineLayout) { vkDestroyPipelineLayout(device, fsr2_.sharpenPipelineLayout, nullptr); fsr2_.sharpenPipelineLayout = VK_NULL_HANDLE; }
-    if (fsr2_.sharpenDescPool) { vkDestroyDescriptorPool(device, fsr2_.sharpenDescPool, nullptr); fsr2_.sharpenDescPool = VK_NULL_HANDLE; fsr2_.sharpenDescSet = VK_NULL_HANDLE; }
+    if (fsr2_.sharpenDescPool) { vkDestroyDescriptorPool(device, fsr2_.sharpenDescPool, nullptr); fsr2_.sharpenDescPool = VK_NULL_HANDLE; fsr2_.sharpenDescSets[0] = fsr2_.sharpenDescSets[1] = VK_NULL_HANDLE; }
     if (fsr2_.sharpenDescSetLayout) { vkDestroyDescriptorSetLayout(device, fsr2_.sharpenDescSetLayout, nullptr); fsr2_.sharpenDescSetLayout = VK_NULL_HANDLE; }
 
     if (fsr2_.accumulatePipeline) { vkDestroyPipeline(device, fsr2_.accumulatePipeline, nullptr); fsr2_.accumulatePipeline = VK_NULL_HANDLE; }
@@ -4082,24 +4086,22 @@ void Renderer::dispatchMotionVectors() {
     vkCmdBindDescriptorSets(currentCmd, VK_PIPELINE_BIND_POINT_COMPUTE,
         fsr2_.motionVecPipelineLayout, 0, 1, &fsr2_.motionVecDescSet, 0, nullptr);
 
-    // Push constants: invViewProj, prevViewProj, resolution, jitterOffset
+    // Single reprojection matrix: prevUnjitteredVP * inv(currentUnjitteredVP)
+    // Both matrices are unjittered — jitter only affects sub-pixel sampling,
+    // not motion vector computation. This avoids numerical instability from
+    // jitter amplification through large world coordinates.
     struct {
-        glm::mat4 invViewProj;
-        glm::mat4 prevViewProj;
+        glm::mat4 reprojMatrix;   // prevUnjitteredVP * inv(currentUnjitteredVP)
         glm::vec4 resolution;
-        glm::vec4 jitterOffset;
     } pc;
 
-    glm::mat4 currentVP = camera->getProjectionMatrix() * camera->getViewMatrix();
-    pc.invViewProj = glm::inverse(currentVP);
-    pc.prevViewProj = fsr2_.prevViewProjection;
+    glm::mat4 currentUnjitteredVP = camera->getUnjitteredViewProjectionMatrix();
+    pc.reprojMatrix = fsr2_.prevViewProjection * glm::inverse(currentUnjitteredVP);
     pc.resolution = glm::vec4(
         static_cast<float>(fsr2_.internalWidth),
         static_cast<float>(fsr2_.internalHeight),
         1.0f / fsr2_.internalWidth,
         1.0f / fsr2_.internalHeight);
-    glm::vec2 jitter = camera->getJitter();
-    pc.jitterOffset = glm::vec4(jitter.x, jitter.y, fsr2_.prevJitter.x, fsr2_.prevJitter.y);
 
     vkCmdPushConstants(currentCmd, fsr2_.motionVecPipelineLayout,
         VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pc), &pc);
@@ -4128,17 +4130,24 @@ void Renderer::dispatchTemporalAccumulate() {
         VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
         VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
 
-    // Transition history input: GENERAL/UNDEFINED → SHADER_READ_ONLY
+    // History layout lifecycle:
+    //   First frame: both in UNDEFINED
+    //   Subsequent frames: both in SHADER_READ_ONLY (output was transitioned for sharpen,
+    //                      input was left in SHADER_READ_ONLY from its sharpen read)
+    VkImageLayout historyOldLayout = fsr2_.needsHistoryReset
+        ? VK_IMAGE_LAYOUT_UNDEFINED
+        : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+    // Transition history input: SHADER_READ_ONLY → SHADER_READ_ONLY (barrier for sync)
     transitionImageLayout(currentCmd, fsr2_.history[inputIdx].image,
-        fsr2_.needsHistoryReset ? VK_IMAGE_LAYOUT_UNDEFINED : VK_IMAGE_LAYOUT_GENERAL,
-        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+        historyOldLayout, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+        VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,  // sharpen read in previous frame
         VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
 
-    // Transition history output: UNDEFINED → GENERAL
+    // Transition history output: SHADER_READ_ONLY → GENERAL (for compute write)
     transitionImageLayout(currentCmd, fsr2_.history[outputIdx].image,
-        VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL,
-        VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+        historyOldLayout, VK_IMAGE_LAYOUT_GENERAL,
+        VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
         VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
 
     vkCmdBindPipeline(currentCmd, VK_PIPELINE_BIND_POINT_COMPUTE, fsr2_.accumulatePipeline);
@@ -4179,6 +4188,10 @@ void Renderer::renderFSR2Sharpen() {
     VkExtent2D ext = vkCtx->getSwapchainExtent();
     uint32_t outputIdx = fsr2_.currentHistory;
 
+    // Use per-frame descriptor set to avoid race with in-flight command buffers
+    uint32_t frameIdx = vkCtx->getCurrentFrame();
+    VkDescriptorSet descSet = fsr2_.sharpenDescSets[frameIdx];
+
     // Update sharpen descriptor to point at current history output
     VkDescriptorImageInfo imgInfo{};
     imgInfo.sampler = fsr2_.linearSampler;
@@ -4186,7 +4199,7 @@ void Renderer::renderFSR2Sharpen() {
     imgInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
     VkWriteDescriptorSet write{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
-    write.dstSet = fsr2_.sharpenDescSet;
+    write.dstSet = descSet;
     write.dstBinding = 0;
     write.descriptorCount = 1;
     write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
@@ -4195,7 +4208,7 @@ void Renderer::renderFSR2Sharpen() {
 
     vkCmdBindPipeline(currentCmd, VK_PIPELINE_BIND_POINT_GRAPHICS, fsr2_.sharpenPipeline);
     vkCmdBindDescriptorSets(currentCmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-        fsr2_.sharpenPipelineLayout, 0, 1, &fsr2_.sharpenDescSet, 0, nullptr);
+        fsr2_.sharpenPipelineLayout, 0, 1, &descSet, 0, nullptr);
 
     glm::vec4 params(1.0f / ext.width, 1.0f / ext.height, fsr2_.sharpness, 0.0f);
     vkCmdPushConstants(currentCmd, fsr2_.sharpenPipelineLayout,
@@ -4213,6 +4226,11 @@ void Renderer::setFSR2Enabled(bool enabled) {
         if (fsr_.enabled) {
             fsr_.enabled = false;
             fsr_.needsRecreate = true;
+        }
+        // FSR2 requires non-MSAA render pass (its framebuffer has 2 attachments)
+        if (vkCtx && vkCtx->getMsaaSamples() > VK_SAMPLE_COUNT_1_BIT) {
+            pendingMsaaSamples_ = VK_SAMPLE_COUNT_1_BIT;
+            msaaChangePending_ = true;
         }
         // Use FSR1's scale factor and sharpness as defaults
         fsr2_.scaleFactor = fsr_.scaleFactor;
