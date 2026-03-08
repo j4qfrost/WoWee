@@ -15,6 +15,16 @@ layout(push_constant) uniform PushConstants {
     vec4 params;         // x = resetHistory (1=reset), y = sharpness, zw = unused
 } pc;
 
+vec3 tonemap(vec3 c) {
+    float luma = max(dot(c, vec3(0.299, 0.587, 0.114)), 0.0);
+    return c / (1.0 + luma);
+}
+
+vec3 inverseTonemap(vec3 c) {
+    float luma = max(dot(c, vec3(0.299, 0.587, 0.114)), 0.0);
+    return c / max(1.0 - luma, 1e-4);
+}
+
 vec3 rgbToYCoCg(vec3 rgb) {
     float y  = 0.25 * rgb.r + 0.5 * rgb.g + 0.25 * rgb.b;
     float co = 0.5  * rgb.r                - 0.5  * rgb.b;
@@ -30,14 +40,12 @@ vec3 yCoCgToRgb(vec3 ycocg) {
 }
 
 // Catmull-Rom bicubic (9 bilinear taps) with anti-ringing clamp.
-// Sharper than bilinear; anti-ringing prevents edge halos that shift with jitter.
 vec3 sampleBicubic(sampler2D tex, vec2 uv, vec2 texSize) {
     vec2 invTexSize = 1.0 / texSize;
     vec2 iTc = uv * texSize;
     vec2 tc = floor(iTc - 0.5) + 0.5;
     vec2 f = iTc - tc;
 
-    // Catmull-Rom weights
     vec2 w0 = f * (-0.5 + f * (1.0 - 0.5 * f));
     vec2 w1 = 1.0 + f * f * (-2.5 + 1.5 * f);
     vec2 w2 = f * (0.5 + f * (2.0 - 1.5 * f));
@@ -50,7 +58,6 @@ vec3 sampleBicubic(sampler2D tex, vec2 uv, vec2 texSize) {
     vec2 tc3  = (tc + 2.0) * invTexSize;
     vec2 tc12 = (tc + offset12) * invTexSize;
 
-    // 3x3 bilinear taps covering 4x4 texel support
     vec3 result =
         (texture(tex, vec2(tc0.x,  tc0.y)).rgb  * w0.x +
          texture(tex, vec2(tc12.x, tc0.y)).rgb  * s12.x +
@@ -62,8 +69,7 @@ vec3 sampleBicubic(sampler2D tex, vec2 uv, vec2 texSize) {
          texture(tex, vec2(tc12.x, tc3.y)).rgb  * s12.x +
          texture(tex, vec2(tc3.x,  tc3.y)).rgb  * w3.x) * w3.y;
 
-    // Anti-ringing: clamp to range of the 4 nearest texels.
-    // Prevents Catmull-Rom negative lobe overshoots at high-contrast edges.
+    // Anti-ringing: clamp to range of the 4 nearest texels
     vec2 tcNear = tc * invTexSize;
     vec3 t00 = texture(tex, tcNear).rgb;
     vec3 t10 = texture(tex, tcNear + vec2(invTexSize.x, 0.0)).rgb;
@@ -81,24 +87,14 @@ void main() {
 
     vec2 outUV = (vec2(outPixel) + 0.5) * pc.displaySize.zw;
 
-    // De-jitter: the scene was rendered with sub-pixel jitter, effectively
-    // shifting the internal image by jitterUV. Sampling at (outUV - jitterUV)
-    // undoes this shift, reconstructing the scene at the output pixel's true
-    // unjittered position. This makes the sampled value consistent across
-    // frames, eliminating the primary source of temporal jitter.
-    vec2 jitterUV = pc.jitterOffset.xy * 0.5;
-    vec2 dejitteredUV = outUV - jitterUV;
-
-    vec3 currentColor = sampleBicubic(sceneColor, dejitteredUV, pc.internalSize.xy);
+    vec3 currentColor = sampleBicubic(sceneColor, outUV, pc.internalSize.xy);
 
     if (pc.params.x > 0.5) {
         imageStore(historyOutput, outPixel, vec4(currentColor, 1.0));
         return;
     }
 
-    // Depth-dilated motion vector: pick the MV from the nearest-to-camera
-    // pixel in a 3x3 neighborhood. Prevents background MVs from bleeding
-    // over foreground edges.
+    // Depth-dilated motion vector (3x3 nearest-to-camera)
     vec2 texelSize = pc.internalSize.zw;
     float closestDepth = texture(depthBuffer, outUV).r;
     vec2 closestOffset = vec2(0.0);
@@ -113,26 +109,27 @@ void main() {
         }
     }
     vec2 motion = texture(motionVectors, outUV + closestOffset).rg;
+    float motionMag = length(motion * pc.displaySize.xy);
 
     vec2 historyUV = outUV + motion;
-
     float historyValid = (historyUV.x >= 0.0 && historyUV.x <= 1.0 &&
                           historyUV.y >= 0.0 && historyUV.y <= 1.0) ? 1.0 : 0.0;
-
     vec3 historyColor = texture(historyInput, historyUV).rgb;
 
-    // Neighborhood clamping in YCoCg space at de-jittered positions.
-    // De-jittered neighborhood is stable across frames, preventing
-    // the clamp box from chasing jitter.
-    vec3 s0 = rgbToYCoCg(currentColor);
-    vec3 s1 = rgbToYCoCg(texture(sceneColor, dejitteredUV + vec2(-texelSize.x, 0.0)).rgb);
-    vec3 s2 = rgbToYCoCg(texture(sceneColor, dejitteredUV + vec2( texelSize.x, 0.0)).rgb);
-    vec3 s3 = rgbToYCoCg(texture(sceneColor, dejitteredUV + vec2(0.0, -texelSize.y)).rgb);
-    vec3 s4 = rgbToYCoCg(texture(sceneColor, dejitteredUV + vec2(0.0,  texelSize.y)).rgb);
-    vec3 s5 = rgbToYCoCg(texture(sceneColor, dejitteredUV + vec2(-texelSize.x, -texelSize.y)).rgb);
-    vec3 s6 = rgbToYCoCg(texture(sceneColor, dejitteredUV + vec2( texelSize.x, -texelSize.y)).rgb);
-    vec3 s7 = rgbToYCoCg(texture(sceneColor, dejitteredUV + vec2(-texelSize.x,  texelSize.y)).rgb);
-    vec3 s8 = rgbToYCoCg(texture(sceneColor, dejitteredUV + vec2( texelSize.x,  texelSize.y)).rgb);
+    // === Tonemapped accumulation ===
+    vec3 tmCurrent = tonemap(currentColor);
+    vec3 tmHistory = tonemap(historyColor);
+
+    // Neighborhood in tonemapped YCoCg
+    vec3 s0 = rgbToYCoCg(tmCurrent);
+    vec3 s1 = rgbToYCoCg(tonemap(texture(sceneColor, outUV + vec2(-texelSize.x, 0.0)).rgb));
+    vec3 s2 = rgbToYCoCg(tonemap(texture(sceneColor, outUV + vec2( texelSize.x, 0.0)).rgb));
+    vec3 s3 = rgbToYCoCg(tonemap(texture(sceneColor, outUV + vec2(0.0, -texelSize.y)).rgb));
+    vec3 s4 = rgbToYCoCg(tonemap(texture(sceneColor, outUV + vec2(0.0,  texelSize.y)).rgb));
+    vec3 s5 = rgbToYCoCg(tonemap(texture(sceneColor, outUV + vec2(-texelSize.x, -texelSize.y)).rgb));
+    vec3 s6 = rgbToYCoCg(tonemap(texture(sceneColor, outUV + vec2( texelSize.x, -texelSize.y)).rgb));
+    vec3 s7 = rgbToYCoCg(tonemap(texture(sceneColor, outUV + vec2(-texelSize.x,  texelSize.y)).rgb));
+    vec3 s8 = rgbToYCoCg(tonemap(texture(sceneColor, outUV + vec2( texelSize.x,  texelSize.y)).rgb));
 
     vec3 m1 = s0 + s1 + s2 + s3 + s4 + s5 + s6 + s7 + s8;
     vec3 m2 = s0*s0 + s1*s1 + s2*s2 + s3*s3 + s4*s4 + s5*s5 + s6*s6 + s7*s7 + s8*s8;
@@ -140,31 +137,49 @@ void main() {
     vec3 variance = max(m2 / 9.0 - mean * mean, vec3(0.0));
     vec3 stddev = sqrt(variance);
 
-    float gamma = 2.0;
+    float gamma = 1.5;
     vec3 boxMin = mean - gamma * stddev;
     vec3 boxMax = mean + gamma * stddev;
 
-    vec3 historyYCoCg = rgbToYCoCg(historyColor);
-    vec3 clampedHistory = clamp(historyYCoCg, boxMin, boxMax);
-    historyColor = yCoCgToRgb(clampedHistory);
+    // Compute clamped history and measure how far it was from the box
+    vec3 tmHistYCoCg = rgbToYCoCg(tmHistory);
+    vec3 clampedYCoCg = clamp(tmHistYCoCg, boxMin, boxMax);
+    float clampDist = length(tmHistYCoCg - clampedYCoCg);
 
-    float clampDist = length(historyYCoCg - clampedHistory);
+    // SELECTIVE CLAMP: only modify history when there's motion or disocclusion.
+    // For static pixels, history is already well-accumulated — clamping it
+    // each frame causes the clamp box (which shifts with jitter) to drag
+    // the history around, creating visible shimmer. By leaving static history
+    // untouched, accumulated anti-aliasing and detail is preserved.
+    float needsClamp = max(
+        clamp(motionMag * 2.0, 0.0, 1.0),      // motion → full clamp
+        clamp(clampDist * 3.0, 0.0, 1.0)        // disocclusion → full clamp
+    );
+    tmHistory = yCoCgToRgb(mix(tmHistYCoCg, clampedYCoCg, needsClamp));
 
-    // With de-jittered sampling, the reconstructed value is consistent across
-    // frames, so a uniform blend rate works without causing visible jitter.
-    // 8% gives ~28 frames for 90% convergence (~0.5s at 60fps).
-    float blendFactor = 0.08;
+    // Blend: higher for good jitter samples, lower for poor ones.
+    // Jitter-aware weighting: current frame's sample quality depends on
+    // how close the jittered sample fell to this output pixel.
+    vec2 jitterPx = pc.jitterOffset.xy * 0.5 * pc.internalSize.xy;
+    vec2 internalPos = outUV * pc.internalSize.xy;
+    vec2 subPixelOffset = fract(internalPos) - 0.5;
+    vec2 sampleDelta = subPixelOffset - jitterPx;
+    float dist2 = dot(sampleDelta, sampleDelta);
+    float sampleQuality = exp(-dist2 * 3.0);
+    float blendFactor = mix(0.03, 0.20, sampleQuality);
 
-    // Disocclusion: large clamp distance → rapidly replace stale history
-    blendFactor = mix(blendFactor, 0.60, clamp(clampDist * 5.0, 0.0, 1.0));
+    // Disocclusion: aggressively replace stale history
+    blendFactor = mix(blendFactor, 0.80, clamp(clampDist * 5.0, 0.0, 1.0));
 
-    // Velocity: higher blend during motion reduces ghosting
-    float motionMag = length(motion * pc.displaySize.xy);
-    blendFactor = max(blendFactor, clamp(motionMag * 0.15, 0.0, 0.35));
+    // Velocity: strong response during camera/object motion
+    blendFactor = max(blendFactor, clamp(motionMag * 0.30, 0.0, 0.50));
 
     // Full current frame when history is out of bounds
     blendFactor = mix(blendFactor, 1.0, 1.0 - historyValid);
 
-    vec3 result = mix(historyColor, currentColor, blendFactor);
+    // Blend in tonemapped space, inverse-tonemap back to linear
+    vec3 tmResult = mix(tmHistory, tmCurrent, blendFactor);
+    vec3 result = inverseTonemap(tmResult);
+
     imageStore(historyOutput, outPixel, vec4(result, 1.0));
 }

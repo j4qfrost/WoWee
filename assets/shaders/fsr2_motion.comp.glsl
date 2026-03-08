@@ -41,12 +41,10 @@ void main() {
     // For a static scene (identity reprojMatrix), this is exactly zero.
     vec2 motion = prevUV - currentUnjitteredUV;
 
-    // Dead zone: sub-pixel motion below 0.01 pixels is floating-point noise
-    // from reprojMatrix precision (especially for distant geometry where
-    // large world coords amplify VP inverse errors). Zero it to prevent
-    // phantom doubling artifacts.
+    // Soft dead zone: smoothly fade out sub-pixel noise from float precision
+    // in reprojMatrix (avoids hard spatial discontinuity from step())
     float motionPx = length(motion * pc.resolution.xy);
-    motion *= step(0.01, motionPx);
+    motion *= smoothstep(0.0, 0.05, motionPx);
 
     imageStore(motionVectors, pixelCoord, vec4(motion, 0.0, 0.0));
 }

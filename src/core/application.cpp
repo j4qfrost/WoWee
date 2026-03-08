@@ -4042,7 +4042,7 @@ void Application::loadOnlineWorldTerrain(uint32_t mapId, float x, float y, float
             // then restore the full radius after entering the game.
             // This matches WoW's behavior: load quickly, stream the rest in-game.
             const int savedLoadRadius = 4;
-            terrainMgr->setLoadRadius(2);   // 5x5=25 tiles — balance between spawn hitches and load time
+            terrainMgr->setLoadRadius(3);   // 7x7=49 tiles — prevents hitches on spawn
             terrainMgr->setUnloadRadius(7);
 
             // Trigger tile streaming for surrounding area
