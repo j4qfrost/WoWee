@@ -122,6 +122,7 @@ struct M2ModelGPU {
     bool isKoboldFlame = false;     // Model name matches kobold+(candle/torch/mine) (precomputed)
     bool isLavaModel = false;       // Model name contains lava/molten/magma (UV scroll fallback)
     bool hasTextureAnimation = false; // True if any batch has UV animation
+    uint8_t availableLODs = 0;  // Bitmask: bit N set if any batch has submeshLevel==N
 
     // Particle emitter data (kept from M2Model)
     std::vector<pipeline::M2ParticleEmitter> particleEmitters;
@@ -193,6 +194,7 @@ struct M2Instance {
 
     // Frame-skip optimization (update distant animations less frequently)
     uint8_t frameSkipCounter = 0;
+    bool bonesDirty = false;  // Set when bones recomputed, cleared after upload
 
     // Per-instance bone SSBO (double-buffered)
     ::VkBuffer boneBuffer[2] = {};
@@ -265,6 +267,8 @@ public:
     /**
      * Render all visible instances (Vulkan)
      */
+    /** Pre-allocate GPU resources (bone SSBOs, descriptors) on main thread before parallel render. */
+    void prepareRender(uint32_t frameIndex, const Camera& camera);
     void render(VkCommandBuffer cmd, VkDescriptorSet perFrameSet, const Camera& camera);
 
     /**

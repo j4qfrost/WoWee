@@ -721,11 +721,18 @@ bool Renderer::initialize(core::Window* win) {
     // TODO Phase 6: Vulkan underwater overlay, post-process, and shadow map
     // GL versions stubbed during migration
 
+    // Create secondary command buffer resources for multithreaded rendering
+    if (!createSecondaryCommandResources()) {
+        LOG_WARNING("Failed to create secondary command buffers — falling back to single-threaded rendering");
+    }
+
     LOG_INFO("Renderer initialized");
     return true;
 }
 
 void Renderer::shutdown() {
+    destroySecondaryCommandResources();
+
     LOG_WARNING("Renderer::shutdown - terrainManager stopWorkers...");
     if (terrainManager) {
         terrainManager->stopWorkers();
@@ -828,6 +835,7 @@ void Renderer::shutdown() {
         if (overlayPipelineLayout) { vkDestroyPipelineLayout(device, overlayPipelineLayout, nullptr); overlayPipelineLayout = VK_NULL_HANDLE; }
     }
 
+    destroyFSRResources();
     destroyPerFrameResources();
 
     zoneManager.reset();
@@ -901,12 +909,7 @@ void Renderer::applyMsaaChange() {
     if (terrainRenderer) terrainRenderer->recreatePipelines();
     if (waterRenderer) {
         waterRenderer->recreatePipelines();
-        if (vkCtx->getMsaaSamples() != VK_SAMPLE_COUNT_1_BIT) {
-            waterRenderer->destroyWater1xResources();
-            setupWater1xPass();
-        } else {
-            waterRenderer->destroyWater1xResources();
-        }
+        waterRenderer->destroyWater1xResources();  // no longer used
     }
     if (wmoRenderer) wmoRenderer->recreatePipelines();
     if (m2Renderer) m2Renderer->recreatePipelines();
@@ -928,10 +931,11 @@ void Renderer::applyMsaaChange() {
 
     if (minimap) minimap->recreatePipelines();
 
-    // Selection circle + overlay use lazy init, just destroy them
+    // Selection circle + overlay + FSR use lazy init, just destroy them
     VkDevice device = vkCtx->getDevice();
     if (selCirclePipeline) { vkDestroyPipeline(device, selCirclePipeline, nullptr); selCirclePipeline = VK_NULL_HANDLE; }
     if (overlayPipeline) { vkDestroyPipeline(device, overlayPipeline, nullptr); overlayPipeline = VK_NULL_HANDLE; }
+    if (fsr_.sceneFramebuffer) destroyFSRResources();  // Will be lazily recreated in beginFrame()
 
     // Reinitialize ImGui Vulkan backend with new MSAA sample count
     ImGui_ImplVulkan_Shutdown();
@@ -961,17 +965,30 @@ void Renderer::beginFrame() {
         applyMsaaChange();
     }
 
+    // FSR resource management (safe: between frames, no command buffer in flight)
+    if (fsr_.needsRecreate && fsr_.sceneFramebuffer) {
+        destroyFSRResources();
+        fsr_.needsRecreate = false;
+        if (!fsr_.enabled) LOG_INFO("FSR: disabled");
+    }
+    if (fsr_.enabled && !fsr_.sceneFramebuffer) {
+        if (!initFSRResources()) {
+            LOG_ERROR("FSR: initialization failed, disabling");
+            fsr_.enabled = false;
+        }
+    }
+
     // Handle swapchain recreation if needed
     if (vkCtx->isSwapchainDirty()) {
         vkCtx->recreateSwapchain(window->getWidth(), window->getHeight());
         // Rebuild water resources that reference swapchain extent/views
         if (waterRenderer) {
             waterRenderer->recreatePipelines();
-            if (waterRenderer->hasWater1xPass()
-                && vkCtx->getMsaaSamples() != VK_SAMPLE_COUNT_1_BIT) {
-                waterRenderer->destroyWater1xResources();
-                setupWater1xPass();
-            }
+        }
+        // Recreate FSR resources for new swapchain dimensions
+        if (fsr_.enabled) {
+            destroyFSRResources();
+            initFSRResources();
         }
     }
 
@@ -1018,47 +1035,131 @@ void Renderer::beginFrame() {
     renderReflectionPass();
     } // !skipPrePasses
 
-    // --- Begin main render pass (clear color + depth) ---
+    // --- Begin render pass ---
+    // If FSR is enabled, render scene to off-screen target at reduced resolution.
+    // Otherwise, render directly to swapchain.
     VkRenderPassBeginInfo rpInfo{};
     rpInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
     rpInfo.renderPass = vkCtx->getImGuiRenderPass();
-    rpInfo.framebuffer = vkCtx->getSwapchainFramebuffers()[currentImageIndex];
-    rpInfo.renderArea.offset = {0, 0};
-    rpInfo.renderArea.extent = vkCtx->getSwapchainExtent();
 
-    // MSAA render pass has 3 attachments (color, depth, resolve), non-MSAA has 2
-    VkClearValue clearValues[3]{};
+    VkExtent2D renderExtent;
+    if (fsr_.enabled && fsr_.sceneFramebuffer) {
+        rpInfo.framebuffer = fsr_.sceneFramebuffer;
+        renderExtent = { fsr_.internalWidth, fsr_.internalHeight };
+    } else {
+        rpInfo.framebuffer = vkCtx->getSwapchainFramebuffers()[currentImageIndex];
+        renderExtent = vkCtx->getSwapchainExtent();
+    }
+
+    rpInfo.renderArea.offset = {0, 0};
+    rpInfo.renderArea.extent = renderExtent;
+
+    // Clear values must match attachment count: 2 (no MSAA), 3 (MSAA), or 4 (MSAA+depth resolve)
+    VkClearValue clearValues[4]{};
     clearValues[0].color = {{0.0f, 0.0f, 0.0f, 1.0f}};
     clearValues[1].depthStencil = {1.0f, 0};
-    clearValues[2].color = {{0.0f, 0.0f, 0.0f, 1.0f}};  // resolve (DONT_CARE, but count must match)
+    clearValues[2].color = {{0.0f, 0.0f, 0.0f, 1.0f}};
+    clearValues[3].depthStencil = {1.0f, 0};
     bool msaaOn = (vkCtx->getMsaaSamples() > VK_SAMPLE_COUNT_1_BIT);
-    rpInfo.clearValueCount = msaaOn ? 3 : 2;
+    if (msaaOn) {
+        bool depthRes = (vkCtx->getDepthResolveImageView() != VK_NULL_HANDLE);
+        rpInfo.clearValueCount = depthRes ? 4 : 3;
+    } else {
+        rpInfo.clearValueCount = 2;
+    }
     rpInfo.pClearValues = clearValues;
 
-    vkCmdBeginRenderPass(currentCmd, &rpInfo, VK_SUBPASS_CONTENTS_INLINE);
+    // Cache render pass state for secondary command buffer inheritance
+    activeRenderPass_ = rpInfo.renderPass;
+    activeFramebuffer_ = rpInfo.framebuffer;
+    activeRenderExtent_ = renderExtent;
 
-    // Set dynamic viewport and scissor
-    VkExtent2D extent = vkCtx->getSwapchainExtent();
-    VkViewport viewport{};
-    viewport.x = 0.0f;
-    viewport.y = 0.0f;
-    viewport.width = static_cast<float>(extent.width);
-    viewport.height = static_cast<float>(extent.height);
-    viewport.minDepth = 0.0f;
-    viewport.maxDepth = 1.0f;
-    vkCmdSetViewport(currentCmd, 0, 1, &viewport);
+    VkSubpassContents subpassMode = parallelRecordingEnabled_
+        ? VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS
+        : VK_SUBPASS_CONTENTS_INLINE;
+    vkCmdBeginRenderPass(currentCmd, &rpInfo, subpassMode);
 
-    VkRect2D scissor{};
-    scissor.offset = {0, 0};
-    scissor.extent = extent;
-    vkCmdSetScissor(currentCmd, 0, 1, &scissor);
+    if (!parallelRecordingEnabled_) {
+        // Fallback: set dynamic viewport and scissor on primary (inline mode)
+        VkViewport viewport{};
+        viewport.width = static_cast<float>(renderExtent.width);
+        viewport.height = static_cast<float>(renderExtent.height);
+        viewport.maxDepth = 1.0f;
+        vkCmdSetViewport(currentCmd, 0, 1, &viewport);
+
+        VkRect2D scissor{};
+        scissor.extent = renderExtent;
+        vkCmdSetScissor(currentCmd, 0, 1, &scissor);
+    }
 }
 
 void Renderer::endFrame() {
     if (!vkCtx || currentCmd == VK_NULL_HANDLE) return;
 
-    // ImGui always renders in the main pass (its pipeline matches the main render pass)
-    ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), currentCmd);
+    if (fsr_.enabled && fsr_.sceneFramebuffer) {
+        // End the off-screen scene render pass
+        vkCmdEndRenderPass(currentCmd);
+
+        // Transition scene color (1x resolve/color target): PRESENT_SRC_KHR → SHADER_READ_ONLY
+        // The render pass finalLayout puts the resolve/color attachment in PRESENT_SRC_KHR
+        transitionImageLayout(currentCmd, fsr_.sceneColor.image,
+            VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+            VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+            VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+
+        // Begin swapchain render pass at full resolution
+        VkRenderPassBeginInfo rpInfo{};
+        rpInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+        rpInfo.renderPass = vkCtx->getImGuiRenderPass();
+        rpInfo.framebuffer = vkCtx->getSwapchainFramebuffers()[currentImageIndex];
+        rpInfo.renderArea.offset = {0, 0};
+        rpInfo.renderArea.extent = vkCtx->getSwapchainExtent();
+
+        // Clear values must match the render pass attachment count
+        bool msaaOn = (vkCtx->getMsaaSamples() > VK_SAMPLE_COUNT_1_BIT);
+        VkClearValue clearValues[4]{};
+        clearValues[0].color = {{0.0f, 0.0f, 0.0f, 1.0f}};
+        clearValues[1].depthStencil = {1.0f, 0};
+        clearValues[2].color = {{0.0f, 0.0f, 0.0f, 1.0f}};
+        clearValues[3].depthStencil = {1.0f, 0};
+        if (msaaOn) {
+            bool depthRes = (vkCtx->getDepthResolveImageView() != VK_NULL_HANDLE);
+            rpInfo.clearValueCount = depthRes ? 4 : 3;
+        } else {
+            rpInfo.clearValueCount = 2;
+        }
+        rpInfo.pClearValues = clearValues;
+
+        vkCmdBeginRenderPass(currentCmd, &rpInfo, VK_SUBPASS_CONTENTS_INLINE);
+
+        // Set full-resolution viewport and scissor
+        VkExtent2D ext = vkCtx->getSwapchainExtent();
+        VkViewport vp{};
+        vp.width = static_cast<float>(ext.width);
+        vp.height = static_cast<float>(ext.height);
+        vp.maxDepth = 1.0f;
+        vkCmdSetViewport(currentCmd, 0, 1, &vp);
+        VkRect2D sc{};
+        sc.extent = ext;
+        vkCmdSetScissor(currentCmd, 0, 1, &sc);
+
+        // Draw FSR upscale fullscreen quad
+        renderFSRUpscale();
+    }
+
+    // ImGui rendering — must respect subpass contents mode
+    if (!fsr_.enabled && parallelRecordingEnabled_) {
+        // Scene pass was begun with VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS,
+        // so ImGui must be recorded into a secondary command buffer.
+        VkCommandBuffer imguiCmd = beginSecondary(SEC_IMGUI);
+        setSecondaryViewportScissor(imguiCmd);
+        ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), imguiCmd);
+        vkEndCommandBuffer(imguiCmd);
+        vkCmdExecuteCommands(currentCmd, 1, &imguiCmd);
+    } else {
+        // FSR swapchain pass uses INLINE mode; non-parallel also uses INLINE.
+        ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), currentCmd);
+    }
 
     vkCmdEndRenderPass(currentCmd);
 
@@ -1076,16 +1177,7 @@ void Renderer::endFrame() {
             frame);
     }
 
-    // Render water in separate 1x pass after MSAA resolve + scene capture
-    bool waterDeferred = waterRenderer && waterRenderer->hasSurfaces() && waterRenderer->hasWater1xPass()
-                         && vkCtx->getMsaaSamples() != VK_SAMPLE_COUNT_1_BIT;
-    if (waterDeferred && camera) {
-        VkExtent2D ext = vkCtx->getSwapchainExtent();
-        if (waterRenderer->beginWater1xPass(currentCmd, currentImageIndex, ext)) {
-            waterRenderer->render(currentCmd, perFrameDescSets[frame], *camera, globalTime, true, frame);
-            waterRenderer->endWater1xPass(currentCmd);
-        }
-    }
+    // Water now renders in the main pass (renderWorld), no separate 1x pass needed.
 
     // Submit and present
     vkCtx->endFrame(currentCmd, currentImageIndex);
@@ -3097,10 +3189,11 @@ void Renderer::clearSelectionCircle() {
     selCircleVisible = false;
 }
 
-void Renderer::renderSelectionCircle(const glm::mat4& view, const glm::mat4& projection) {
+void Renderer::renderSelectionCircle(const glm::mat4& view, const glm::mat4& projection, VkCommandBuffer overrideCmd) {
     if (!selCircleVisible) return;
     initSelectionCircle();
-    if (selCirclePipeline == VK_NULL_HANDLE || currentCmd == VK_NULL_HANDLE) return;
+    VkCommandBuffer cmd = (overrideCmd != VK_NULL_HANDLE) ? overrideCmd : currentCmd;
+    if (selCirclePipeline == VK_NULL_HANDLE || cmd == VK_NULL_HANDLE) return;
 
     // Keep circle anchored near target foot Z. Accept nearby floor probes only,
     // so distant upper/lower WMO planes don't yank the ring away from feet.
@@ -3132,19 +3225,19 @@ void Renderer::renderSelectionCircle(const glm::mat4& view, const glm::mat4& pro
     glm::mat4 mvp = projection * view * model;
     glm::vec4 color4(selCircleColor, 1.0f);
 
-    vkCmdBindPipeline(currentCmd, VK_PIPELINE_BIND_POINT_GRAPHICS, selCirclePipeline);
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, selCirclePipeline);
     VkDeviceSize offset = 0;
-    vkCmdBindVertexBuffers(currentCmd, 0, 1, &selCircleVertBuf, &offset);
-    vkCmdBindIndexBuffer(currentCmd, selCircleIdxBuf, 0, VK_INDEX_TYPE_UINT16);
+    vkCmdBindVertexBuffers(cmd, 0, 1, &selCircleVertBuf, &offset);
+    vkCmdBindIndexBuffer(cmd, selCircleIdxBuf, 0, VK_INDEX_TYPE_UINT16);
     // Push mvp (64 bytes) at offset 0
-    vkCmdPushConstants(currentCmd, selCirclePipelineLayout,
+    vkCmdPushConstants(cmd, selCirclePipelineLayout,
         VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
         0, 64, &mvp[0][0]);
     // Push color (16 bytes) at offset 64
-    vkCmdPushConstants(currentCmd, selCirclePipelineLayout,
+    vkCmdPushConstants(cmd, selCirclePipelineLayout,
         VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
         64, 16, &color4[0]);
-    vkCmdDrawIndexed(currentCmd, static_cast<uint32_t>(selCircleVertCount), 1, 0, 0, 0);
+    vkCmdDrawIndexed(cmd, static_cast<uint32_t>(selCircleVertCount), 1, 0, 0, 0);
 }
 
 // ──────────────────────────────────────────────────────────────
@@ -3194,14 +3287,304 @@ void Renderer::initOverlayPipeline() {
     if (overlayPipeline) LOG_INFO("Renderer: overlay pipeline initialized");
 }
 
-void Renderer::renderOverlay(const glm::vec4& color) {
+void Renderer::renderOverlay(const glm::vec4& color, VkCommandBuffer overrideCmd) {
     if (!overlayPipeline) initOverlayPipeline();
-    if (!overlayPipeline || currentCmd == VK_NULL_HANDLE) return;
-    vkCmdBindPipeline(currentCmd, VK_PIPELINE_BIND_POINT_GRAPHICS, overlayPipeline);
-    vkCmdPushConstants(currentCmd, overlayPipelineLayout,
+    VkCommandBuffer cmd = (overrideCmd != VK_NULL_HANDLE) ? overrideCmd : currentCmd;
+    if (!overlayPipeline || cmd == VK_NULL_HANDLE) return;
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, overlayPipeline);
+    vkCmdPushConstants(cmd, overlayPipelineLayout,
                        VK_SHADER_STAGE_FRAGMENT_BIT, 0, 16, &color[0]);
-    vkCmdDraw(currentCmd, 3, 1, 0, 0); // fullscreen triangle
+    vkCmdDraw(cmd, 3, 1, 0, 0); // fullscreen triangle
 }
+
+// ========================= FSR 1.0 Upscaling =========================
+
+bool Renderer::initFSRResources() {
+    if (!vkCtx) return false;
+
+    VkDevice device = vkCtx->getDevice();
+    VmaAllocator alloc = vkCtx->getAllocator();
+    VkExtent2D swapExtent = vkCtx->getSwapchainExtent();
+    VkSampleCountFlagBits msaa = vkCtx->getMsaaSamples();
+    bool useMsaa = (msaa > VK_SAMPLE_COUNT_1_BIT);
+    bool useDepthResolve = (vkCtx->getDepthResolveImageView() != VK_NULL_HANDLE);
+
+    fsr_.internalWidth = static_cast<uint32_t>(swapExtent.width * fsr_.scaleFactor);
+    fsr_.internalHeight = static_cast<uint32_t>(swapExtent.height * fsr_.scaleFactor);
+    fsr_.internalWidth = (fsr_.internalWidth + 1) & ~1u;
+    fsr_.internalHeight = (fsr_.internalHeight + 1) & ~1u;
+
+    LOG_INFO("FSR: initializing at ", fsr_.internalWidth, "x", fsr_.internalHeight,
+             " -> ", swapExtent.width, "x", swapExtent.height,
+             " (scale=", fsr_.scaleFactor, ", MSAA=", static_cast<int>(msaa), "x)");
+
+    VkFormat colorFmt = vkCtx->getSwapchainFormat();
+    VkFormat depthFmt = vkCtx->getDepthFormat();
+
+    // sceneColor: always 1x, always sampled — this is what FSR reads
+    // Non-MSAA: direct render target. MSAA: resolve target.
+    fsr_.sceneColor = createImage(device, alloc, fsr_.internalWidth, fsr_.internalHeight,
+        colorFmt, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT);
+    if (!fsr_.sceneColor.image) {
+        LOG_ERROR("FSR: failed to create scene color image");
+        return false;
+    }
+
+    // sceneDepth: matches current MSAA sample count
+    fsr_.sceneDepth = createImage(device, alloc, fsr_.internalWidth, fsr_.internalHeight,
+        depthFmt, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, msaa);
+    if (!fsr_.sceneDepth.image) {
+        LOG_ERROR("FSR: failed to create scene depth image");
+        destroyFSRResources();
+        return false;
+    }
+
+    if (useMsaa) {
+        // sceneMsaaColor: multisampled color target
+        fsr_.sceneMsaaColor = createImage(device, alloc, fsr_.internalWidth, fsr_.internalHeight,
+            colorFmt, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT, msaa);
+        if (!fsr_.sceneMsaaColor.image) {
+            LOG_ERROR("FSR: failed to create MSAA color image");
+            destroyFSRResources();
+            return false;
+        }
+
+        if (useDepthResolve) {
+            fsr_.sceneDepthResolve = createImage(device, alloc, fsr_.internalWidth, fsr_.internalHeight,
+                depthFmt, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT);
+            if (!fsr_.sceneDepthResolve.image) {
+                LOG_ERROR("FSR: failed to create depth resolve image");
+                destroyFSRResources();
+                return false;
+            }
+        }
+    }
+
+    // Build framebuffer matching the main render pass attachment layout:
+    //   Non-MSAA:              [color, depth]
+    //   MSAA (no depth res):   [msaaColor, depth, resolve]
+    //   MSAA (depth res):      [msaaColor, depth, resolve, depthResolve]
+    VkImageView fbAttachments[4]{};
+    uint32_t fbCount;
+    if (useMsaa) {
+        fbAttachments[0] = fsr_.sceneMsaaColor.imageView;
+        fbAttachments[1] = fsr_.sceneDepth.imageView;
+        fbAttachments[2] = fsr_.sceneColor.imageView;  // resolve target
+        fbCount = 3;
+        if (useDepthResolve) {
+            fbAttachments[3] = fsr_.sceneDepthResolve.imageView;
+            fbCount = 4;
+        }
+    } else {
+        fbAttachments[0] = fsr_.sceneColor.imageView;
+        fbAttachments[1] = fsr_.sceneDepth.imageView;
+        fbCount = 2;
+    }
+
+    VkFramebufferCreateInfo fbInfo{};
+    fbInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+    fbInfo.renderPass = vkCtx->getImGuiRenderPass();
+    fbInfo.attachmentCount = fbCount;
+    fbInfo.pAttachments = fbAttachments;
+    fbInfo.width = fsr_.internalWidth;
+    fbInfo.height = fsr_.internalHeight;
+    fbInfo.layers = 1;
+
+    if (vkCreateFramebuffer(device, &fbInfo, nullptr, &fsr_.sceneFramebuffer) != VK_SUCCESS) {
+        LOG_ERROR("FSR: failed to create scene framebuffer");
+        destroyFSRResources();
+        return false;
+    }
+
+    // Sampler for the resolved scene color
+    VkSamplerCreateInfo samplerInfo{};
+    samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+    samplerInfo.minFilter = VK_FILTER_LINEAR;
+    samplerInfo.magFilter = VK_FILTER_LINEAR;
+    samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    samplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
+    if (vkCreateSampler(device, &samplerInfo, nullptr, &fsr_.sceneSampler) != VK_SUCCESS) {
+        LOG_ERROR("FSR: failed to create sampler");
+        destroyFSRResources();
+        return false;
+    }
+
+    // Descriptor set layout: binding 0 = combined image sampler
+    VkDescriptorSetLayoutBinding binding{};
+    binding.binding = 0;
+    binding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    binding.descriptorCount = 1;
+    binding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+
+    VkDescriptorSetLayoutCreateInfo layoutInfo{};
+    layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+    layoutInfo.bindingCount = 1;
+    layoutInfo.pBindings = &binding;
+    vkCreateDescriptorSetLayout(device, &layoutInfo, nullptr, &fsr_.descSetLayout);
+
+    VkDescriptorPoolSize poolSize{};
+    poolSize.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    poolSize.descriptorCount = 1;
+    VkDescriptorPoolCreateInfo poolInfo{};
+    poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+    poolInfo.maxSets = 1;
+    poolInfo.poolSizeCount = 1;
+    poolInfo.pPoolSizes = &poolSize;
+    vkCreateDescriptorPool(device, &poolInfo, nullptr, &fsr_.descPool);
+
+    VkDescriptorSetAllocateInfo dsAllocInfo{};
+    dsAllocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+    dsAllocInfo.descriptorPool = fsr_.descPool;
+    dsAllocInfo.descriptorSetCount = 1;
+    dsAllocInfo.pSetLayouts = &fsr_.descSetLayout;
+    vkAllocateDescriptorSets(device, &dsAllocInfo, &fsr_.descSet);
+
+    // Always bind the 1x sceneColor (FSR reads the resolved image)
+    VkDescriptorImageInfo imgInfo{};
+    imgInfo.sampler = fsr_.sceneSampler;
+    imgInfo.imageView = fsr_.sceneColor.imageView;
+    imgInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+    VkWriteDescriptorSet write{};
+    write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    write.dstSet = fsr_.descSet;
+    write.dstBinding = 0;
+    write.descriptorCount = 1;
+    write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    write.pImageInfo = &imgInfo;
+    vkUpdateDescriptorSets(device, 1, &write, 0, nullptr);
+
+    // Pipeline layout
+    VkPushConstantRange pc{};
+    pc.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+    pc.offset = 0;
+    pc.size = 64;
+    VkPipelineLayoutCreateInfo plCI{};
+    plCI.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+    plCI.setLayoutCount = 1;
+    plCI.pSetLayouts = &fsr_.descSetLayout;
+    plCI.pushConstantRangeCount = 1;
+    plCI.pPushConstantRanges = &pc;
+    vkCreatePipelineLayout(device, &plCI, nullptr, &fsr_.pipelineLayout);
+
+    // Load shaders
+    VkShaderModule vertMod, fragMod;
+    if (!vertMod.loadFromFile(device, "assets/shaders/postprocess.vert.spv") ||
+        !fragMod.loadFromFile(device, "assets/shaders/fsr_easu.frag.spv")) {
+        LOG_ERROR("FSR: failed to load shaders");
+        destroyFSRResources();
+        return false;
+    }
+
+    // FSR upscale pipeline renders into the swapchain pass at full resolution
+    // Must match swapchain pass MSAA setting
+    fsr_.pipeline = PipelineBuilder()
+        .setShaders(vertMod.stageInfo(VK_SHADER_STAGE_VERTEX_BIT),
+                    fragMod.stageInfo(VK_SHADER_STAGE_FRAGMENT_BIT))
+        .setVertexInput({}, {})
+        .setTopology(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST)
+        .setRasterization(VK_POLYGON_MODE_FILL, VK_CULL_MODE_NONE)
+        .setNoDepthTest()
+        .setColorBlendAttachment(PipelineBuilder::blendDisabled())
+        .setMultisample(msaa)
+        .setLayout(fsr_.pipelineLayout)
+        .setRenderPass(vkCtx->getImGuiRenderPass())
+        .setDynamicStates({VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR})
+        .build(device);
+
+    vertMod.destroy();
+    fragMod.destroy();
+
+    if (!fsr_.pipeline) {
+        LOG_ERROR("FSR: failed to create upscale pipeline");
+        destroyFSRResources();
+        return false;
+    }
+
+    LOG_INFO("FSR: initialized successfully");
+    return true;
+}
+
+void Renderer::destroyFSRResources() {
+    if (!vkCtx) return;
+    VkDevice device = vkCtx->getDevice();
+    VmaAllocator alloc = vkCtx->getAllocator();
+
+    vkDeviceWaitIdle(device);
+
+    if (fsr_.pipeline) { vkDestroyPipeline(device, fsr_.pipeline, nullptr); fsr_.pipeline = VK_NULL_HANDLE; }
+    if (fsr_.pipelineLayout) { vkDestroyPipelineLayout(device, fsr_.pipelineLayout, nullptr); fsr_.pipelineLayout = VK_NULL_HANDLE; }
+    if (fsr_.descPool) { vkDestroyDescriptorPool(device, fsr_.descPool, nullptr); fsr_.descPool = VK_NULL_HANDLE; fsr_.descSet = VK_NULL_HANDLE; }
+    if (fsr_.descSetLayout) { vkDestroyDescriptorSetLayout(device, fsr_.descSetLayout, nullptr); fsr_.descSetLayout = VK_NULL_HANDLE; }
+    if (fsr_.sceneFramebuffer) { vkDestroyFramebuffer(device, fsr_.sceneFramebuffer, nullptr); fsr_.sceneFramebuffer = VK_NULL_HANDLE; }
+    if (fsr_.sceneSampler) { vkDestroySampler(device, fsr_.sceneSampler, nullptr); fsr_.sceneSampler = VK_NULL_HANDLE; }
+    destroyImage(device, alloc, fsr_.sceneDepthResolve);
+    destroyImage(device, alloc, fsr_.sceneMsaaColor);
+    destroyImage(device, alloc, fsr_.sceneDepth);
+    destroyImage(device, alloc, fsr_.sceneColor);
+
+    fsr_.internalWidth = 0;
+    fsr_.internalHeight = 0;
+}
+
+void Renderer::renderFSRUpscale() {
+    if (!fsr_.pipeline || currentCmd == VK_NULL_HANDLE) return;
+
+    VkExtent2D outExtent = vkCtx->getSwapchainExtent();
+    float inW = static_cast<float>(fsr_.internalWidth);
+    float inH = static_cast<float>(fsr_.internalHeight);
+    float outW = static_cast<float>(outExtent.width);
+    float outH = static_cast<float>(outExtent.height);
+
+    // FSR push constants
+    struct {
+        glm::vec4 con0;  // inputSize.xy, 1/inputSize.xy
+        glm::vec4 con1;  // inputSize.xy / outputSize.xy, 0.5 * inputSize.xy / outputSize.xy
+        glm::vec4 con2;  // outputSize.xy, 1/outputSize.xy
+        glm::vec4 con3;  // sharpness, 0, 0, 0
+    } fsrConst;
+
+    fsrConst.con0 = glm::vec4(inW, inH, 1.0f / inW, 1.0f / inH);
+    fsrConst.con1 = glm::vec4(inW / outW, inH / outH, 0.5f * inW / outW, 0.5f * inH / outH);
+    fsrConst.con2 = glm::vec4(outW, outH, 1.0f / outW, 1.0f / outH);
+    fsrConst.con3 = glm::vec4(fsr_.sharpness, 0.0f, 0.0f, 0.0f);
+
+    vkCmdBindPipeline(currentCmd, VK_PIPELINE_BIND_POINT_GRAPHICS, fsr_.pipeline);
+    vkCmdBindDescriptorSets(currentCmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+        fsr_.pipelineLayout, 0, 1, &fsr_.descSet, 0, nullptr);
+    vkCmdPushConstants(currentCmd, fsr_.pipelineLayout,
+        VK_SHADER_STAGE_FRAGMENT_BIT, 0, 64, &fsrConst);
+    vkCmdDraw(currentCmd, 3, 1, 0, 0);
+}
+
+void Renderer::setFSREnabled(bool enabled) {
+    if (fsr_.enabled == enabled) return;
+    fsr_.enabled = enabled;
+
+    if (!enabled) {
+        // Defer destruction to next beginFrame() — can't destroy mid-render
+        fsr_.needsRecreate = true;
+    }
+    // Resources created/destroyed lazily in beginFrame()
+}
+
+void Renderer::setFSRQuality(float scaleFactor) {
+    scaleFactor = glm::clamp(scaleFactor, 0.5f, 1.0f);
+    if (fsr_.scaleFactor == scaleFactor) return;
+    fsr_.scaleFactor = scaleFactor;
+    // Don't destroy/recreate mid-frame — mark for lazy recreation in next beginFrame()
+    if (fsr_.enabled && fsr_.sceneFramebuffer) {
+        fsr_.needsRecreate = true;
+    }
+}
+
+void Renderer::setFSRSharpness(float sharpness) {
+    fsr_.sharpness = glm::clamp(sharpness, 0.0f, 2.0f);
+}
+
+// ========================= End FSR =========================
 
 void Renderer::renderWorld(game::World* world, game::GameHandler* gameHandler) {
     (void)world;
@@ -3233,153 +3616,283 @@ void Renderer::renderWorld(game::World* world, game::GameHandler* gameHandler) {
     // Get time of day for sky-related rendering
     float timeOfDay = (skySystem && skySystem->getSkybox()) ? skySystem->getSkybox()->getTimeOfDay() : 12.0f;
 
-    // Render sky system (unified coordinator for skybox, stars, celestial, clouds, lens flare)
-    if (skySystem && camera && !skipSky) {
-        rendering::SkyParams skyParams;
-        skyParams.timeOfDay = timeOfDay;
-        skyParams.gameTime = gameHandler ? gameHandler->getGameTime() : -1.0f;
-
-        if (lightingManager) {
-            const auto& lighting = lightingManager->getLightingParams();
-            skyParams.directionalDir = lighting.directionalDir;
-            skyParams.sunColor = lighting.diffuseColor;
-            skyParams.skyTopColor = lighting.skyTopColor;
-            skyParams.skyMiddleColor = lighting.skyMiddleColor;
-            skyParams.skyBand1Color = lighting.skyBand1Color;
-            skyParams.skyBand2Color = lighting.skyBand2Color;
-            skyParams.cloudDensity = lighting.cloudDensity;
-            skyParams.fogDensity = lighting.fogDensity;
-            skyParams.horizonGlow = lighting.horizonGlow;
-        }
-
-        // Weather attenuation for lens flare
-        if (gameHandler) {
-            skyParams.weatherIntensity = gameHandler->getWeatherIntensity();
-        }
-
-        skyParams.skyboxModelId = 0;
-        skyParams.skyboxHasStars = false;
-
-        skySystem->render(currentCmd, perFrameSet, *camera, skyParams);
-    }
-
-    // Terrain (opaque pass)
-    if (terrainRenderer && camera && terrainEnabled && !skipTerrain) {
-        auto terrainStart = std::chrono::steady_clock::now();
-        terrainRenderer->render(currentCmd, perFrameSet, *camera);
-        lastTerrainRenderMs = std::chrono::duration<double, std::milli>(
-            std::chrono::steady_clock::now() - terrainStart).count();
-    }
-
-    // WMO buildings (opaque, drawn before characters so selection circle sits on top)
-    if (wmoRenderer && camera && !skipWMO) {
-        auto wmoStart = std::chrono::steady_clock::now();
-        wmoRenderer->render(currentCmd, perFrameSet, *camera);
-        lastWMORenderMs = std::chrono::duration<double, std::milli>(
-            std::chrono::steady_clock::now() - wmoStart).count();
-    }
-
-    // Selection circle (drawn after WMO, before characters)
-    renderSelectionCircle(view, projection);
-
-    // Characters (after selection circle so units draw over the ring)
-    if (characterRenderer && camera && !skipChars) {
-        characterRenderer->render(currentCmd, perFrameSet, *camera);
-    }
-
-    // M2 doodads, creatures, glow sprites, particles
-    if (m2Renderer && camera && !skipM2) {
-        if (cameraController) {
+    // ── Multithreaded secondary command buffer recording ──
+    // Terrain, WMO, and M2 record on worker threads while main thread handles
+    // sky, characters, water, and effects.  prepareRender() on main thread first
+    // to handle thread-unsafe GPU allocations (descriptor pools, bone SSBOs).
+    if (parallelRecordingEnabled_) {
+        // --- Pre-compute state + GPU allocations on main thread (not thread-safe) ---
+        if (m2Renderer && cameraController) {
             m2Renderer->setInsideInterior(cameraController->isInsideWMO());
             m2Renderer->setOnTaxi(cameraController->isOnTaxi());
         }
-        auto m2Start = std::chrono::steady_clock::now();
-        m2Renderer->render(currentCmd, perFrameSet, *camera);
-        m2Renderer->renderSmokeParticles(currentCmd, perFrameSet);
-        m2Renderer->renderM2Particles(currentCmd, perFrameSet);
-        lastM2RenderMs = std::chrono::duration<double, std::milli>(
-            std::chrono::steady_clock::now() - m2Start).count();
-    }
+        if (wmoRenderer) wmoRenderer->prepareRender();
+        if (m2Renderer && camera) m2Renderer->prepareRender(frameIdx, *camera);
+        if (characterRenderer) characterRenderer->prepareRender(frameIdx);
 
-    // Water (transparent, after all opaques)
-    // When MSAA is on and 1x pass is available, water renders after main pass ends
-    bool waterDeferred = waterRenderer && waterRenderer->hasWater1xPass()
-                         && vkCtx->getMsaaSamples() != VK_SAMPLE_COUNT_1_BIT;
-    if (waterRenderer && camera && !waterDeferred) {
-        waterRenderer->render(currentCmd, perFrameSet, *camera, globalTime, false, vkCtx->getCurrentFrame());
-    }
+        // --- Dispatch worker threads (terrain + WMO + M2) ---
+        std::future<double> terrainFuture, wmoFuture, m2Future;
 
-    // Weather particles
-    if (weather && camera) {
-        weather->render(currentCmd, perFrameSet);
-    }
-
-    // Swim effects (ripples, bubbles)
-    if (swimEffects && camera) {
-        swimEffects->render(currentCmd, perFrameSet);
-    }
-
-    // Mount dust
-    if (mountDust && camera) {
-        mountDust->render(currentCmd, perFrameSet);
-    }
-
-    // Charge effect
-    if (chargeEffect && camera) {
-        chargeEffect->render(currentCmd, perFrameSet);
-    }
-
-    // Quest markers (billboards above NPCs)
-    if (questMarkerRenderer && camera) {
-        questMarkerRenderer->render(currentCmd, perFrameSet, *camera);
-    }
-
-    // Underwater blue fog overlay — only for terrain water, not WMO water.
-    if (overlayPipeline && waterRenderer && camera) {
-        glm::vec3 camPos = camera->getPosition();
-        auto waterH = waterRenderer->getNearestWaterHeightAt(camPos.x, camPos.y, camPos.z);
-        constexpr float MIN_SUBMERSION_OVERLAY = 1.5f;
-        if (waterH && camPos.z < (*waterH - MIN_SUBMERSION_OVERLAY)
-                   && !waterRenderer->isWmoWaterAt(camPos.x, camPos.y)) {
-            float depth = *waterH - camPos.z - MIN_SUBMERSION_OVERLAY;
-
-            // Check for canal (liquid type 5, 13, 17) — denser/darker fog
-            bool canal = false;
-            if (auto lt = waterRenderer->getWaterTypeAt(camPos.x, camPos.y))
-                canal = (*lt == 5 || *lt == 13 || *lt == 17);
-
-            // Fog opacity increases with depth: thin at surface, thick deep down
-            float fogStrength = 1.0f - std::exp(-depth * (canal ? 0.25f : 0.12f));
-            fogStrength = glm::clamp(fogStrength, 0.0f, 0.75f);
-
-            glm::vec4 tint = canal
-                ? glm::vec4(0.01f, 0.04f, 0.10f, fogStrength)
-                : glm::vec4(0.03f, 0.09f, 0.18f, fogStrength);
-            renderOverlay(tint);
+        if (terrainRenderer && camera && terrainEnabled && !skipTerrain) {
+            terrainFuture = std::async(std::launch::async, [&]() -> double {
+                auto t0 = std::chrono::steady_clock::now();
+                VkCommandBuffer cmd = beginSecondary(SEC_TERRAIN);
+                setSecondaryViewportScissor(cmd);
+                terrainRenderer->render(cmd, perFrameSet, *camera);
+                vkEndCommandBuffer(cmd);
+                return std::chrono::duration<double, std::milli>(
+                    std::chrono::steady_clock::now() - t0).count();
+            });
         }
+
+        if (wmoRenderer && camera && !skipWMO) {
+            wmoFuture = std::async(std::launch::async, [&]() -> double {
+                auto t0 = std::chrono::steady_clock::now();
+                VkCommandBuffer cmd = beginSecondary(SEC_WMO);
+                setSecondaryViewportScissor(cmd);
+                wmoRenderer->render(cmd, perFrameSet, *camera);
+                vkEndCommandBuffer(cmd);
+                return std::chrono::duration<double, std::milli>(
+                    std::chrono::steady_clock::now() - t0).count();
+            });
+        }
+
+        if (m2Renderer && camera && !skipM2) {
+            m2Future = std::async(std::launch::async, [&]() -> double {
+                auto t0 = std::chrono::steady_clock::now();
+                VkCommandBuffer cmd = beginSecondary(SEC_M2);
+                setSecondaryViewportScissor(cmd);
+                m2Renderer->render(cmd, perFrameSet, *camera);
+                m2Renderer->renderSmokeParticles(cmd, perFrameSet);
+                m2Renderer->renderM2Particles(cmd, perFrameSet);
+                vkEndCommandBuffer(cmd);
+                return std::chrono::duration<double, std::milli>(
+                    std::chrono::steady_clock::now() - t0).count();
+            });
+        }
+
+        // --- Main thread: record sky (SEC_SKY) ---
+        {
+            VkCommandBuffer cmd = beginSecondary(SEC_SKY);
+            setSecondaryViewportScissor(cmd);
+            if (skySystem && camera && !skipSky) {
+                rendering::SkyParams skyParams;
+                skyParams.timeOfDay = timeOfDay;
+                skyParams.gameTime = gameHandler ? gameHandler->getGameTime() : -1.0f;
+                if (lightingManager) {
+                    const auto& lighting = lightingManager->getLightingParams();
+                    skyParams.directionalDir = lighting.directionalDir;
+                    skyParams.sunColor = lighting.diffuseColor;
+                    skyParams.skyTopColor = lighting.skyTopColor;
+                    skyParams.skyMiddleColor = lighting.skyMiddleColor;
+                    skyParams.skyBand1Color = lighting.skyBand1Color;
+                    skyParams.skyBand2Color = lighting.skyBand2Color;
+                    skyParams.cloudDensity = lighting.cloudDensity;
+                    skyParams.fogDensity = lighting.fogDensity;
+                    skyParams.horizonGlow = lighting.horizonGlow;
+                }
+                if (gameHandler) skyParams.weatherIntensity = gameHandler->getWeatherIntensity();
+                skyParams.skyboxModelId = 0;
+                skyParams.skyboxHasStars = false;
+                skySystem->render(cmd, perFrameSet, *camera, skyParams);
+            }
+            vkEndCommandBuffer(cmd);
+        }
+
+        // --- Main thread: record characters + selection circle (SEC_CHARS) ---
+        {
+            VkCommandBuffer cmd = beginSecondary(SEC_CHARS);
+            setSecondaryViewportScissor(cmd);
+            renderSelectionCircle(view, projection, cmd);
+            if (characterRenderer && camera && !skipChars) {
+                characterRenderer->render(cmd, perFrameSet, *camera);
+            }
+            vkEndCommandBuffer(cmd);
+        }
+
+        // --- Wait for workers ---
+        if (terrainFuture.valid()) lastTerrainRenderMs = terrainFuture.get();
+        if (wmoFuture.valid()) lastWMORenderMs = wmoFuture.get();
+        if (m2Future.valid()) lastM2RenderMs = m2Future.get();
+
+        // --- Main thread: record post-opaque (SEC_POST) ---
+        {
+            VkCommandBuffer cmd = beginSecondary(SEC_POST);
+            setSecondaryViewportScissor(cmd);
+            if (waterRenderer && camera)
+                waterRenderer->render(cmd, perFrameSet, *camera, globalTime, false, frameIdx);
+            if (weather && camera) weather->render(cmd, perFrameSet);
+            if (swimEffects && camera) swimEffects->render(cmd, perFrameSet);
+            if (mountDust && camera) mountDust->render(cmd, perFrameSet);
+            if (chargeEffect && camera) chargeEffect->render(cmd, perFrameSet);
+            if (questMarkerRenderer && camera) questMarkerRenderer->render(cmd, perFrameSet, *camera);
+
+            // Underwater overlay + minimap
+            if (overlayPipeline && waterRenderer && camera) {
+                glm::vec3 camPos = camera->getPosition();
+                auto waterH = waterRenderer->getNearestWaterHeightAt(camPos.x, camPos.y, camPos.z);
+                constexpr float MIN_SUBMERSION_OVERLAY = 1.5f;
+                if (waterH && camPos.z < (*waterH - MIN_SUBMERSION_OVERLAY)
+                           && !waterRenderer->isWmoWaterAt(camPos.x, camPos.y)) {
+                    float depth = *waterH - camPos.z - MIN_SUBMERSION_OVERLAY;
+                    bool canal = false;
+                    if (auto lt = waterRenderer->getWaterTypeAt(camPos.x, camPos.y))
+                        canal = (*lt == 5 || *lt == 13 || *lt == 17);
+                    float fogStrength = 1.0f - std::exp(-depth * (canal ? 0.25f : 0.12f));
+                    fogStrength = glm::clamp(fogStrength, 0.0f, 0.75f);
+                    glm::vec4 tint = canal
+                        ? glm::vec4(0.01f, 0.04f, 0.10f, fogStrength)
+                        : glm::vec4(0.03f, 0.09f, 0.18f, fogStrength);
+                    renderOverlay(tint, cmd);
+                }
+            }
+            if (minimap && minimap->isEnabled() && camera && window) {
+                glm::vec3 minimapCenter = camera->getPosition();
+                if (cameraController && cameraController->isThirdPerson())
+                    minimapCenter = characterPosition;
+                float minimapPlayerOrientation = 0.0f;
+                bool hasMinimapPlayerOrientation = false;
+                if (cameraController) {
+                    float facingRad = glm::radians(characterYaw);
+                    glm::vec3 facingFwd(std::cos(facingRad), std::sin(facingRad), 0.0f);
+                    minimapPlayerOrientation = std::atan2(-facingFwd.x, facingFwd.y);
+                    hasMinimapPlayerOrientation = true;
+                } else if (gameHandler) {
+                    minimapPlayerOrientation = gameHandler->getMovementInfo().orientation;
+                    hasMinimapPlayerOrientation = true;
+                }
+                minimap->render(cmd, *camera, minimapCenter,
+                                window->getWidth(), window->getHeight(),
+                                minimapPlayerOrientation, hasMinimapPlayerOrientation);
+            }
+            vkEndCommandBuffer(cmd);
+        }
+
+        // --- Execute all secondary buffers in correct draw order ---
+        VkCommandBuffer validCmds[6];
+        uint32_t numCmds = 0;
+        validCmds[numCmds++] = secondaryCmds_[SEC_SKY][frameIdx];
+        if (terrainRenderer && camera && terrainEnabled && !skipTerrain)
+            validCmds[numCmds++] = secondaryCmds_[SEC_TERRAIN][frameIdx];
+        if (wmoRenderer && camera && !skipWMO)
+            validCmds[numCmds++] = secondaryCmds_[SEC_WMO][frameIdx];
+        validCmds[numCmds++] = secondaryCmds_[SEC_CHARS][frameIdx];
+        if (m2Renderer && camera && !skipM2)
+            validCmds[numCmds++] = secondaryCmds_[SEC_M2][frameIdx];
+        validCmds[numCmds++] = secondaryCmds_[SEC_POST][frameIdx];
+
+        vkCmdExecuteCommands(currentCmd, numCmds, validCmds);
+
+    } else {
+        // ── Fallback: single-threaded inline recording (original path) ──
+
+        if (skySystem && camera && !skipSky) {
+            rendering::SkyParams skyParams;
+            skyParams.timeOfDay = timeOfDay;
+            skyParams.gameTime = gameHandler ? gameHandler->getGameTime() : -1.0f;
+            if (lightingManager) {
+                const auto& lighting = lightingManager->getLightingParams();
+                skyParams.directionalDir = lighting.directionalDir;
+                skyParams.sunColor = lighting.diffuseColor;
+                skyParams.skyTopColor = lighting.skyTopColor;
+                skyParams.skyMiddleColor = lighting.skyMiddleColor;
+                skyParams.skyBand1Color = lighting.skyBand1Color;
+                skyParams.skyBand2Color = lighting.skyBand2Color;
+                skyParams.cloudDensity = lighting.cloudDensity;
+                skyParams.fogDensity = lighting.fogDensity;
+                skyParams.horizonGlow = lighting.horizonGlow;
+            }
+            if (gameHandler) skyParams.weatherIntensity = gameHandler->getWeatherIntensity();
+            skyParams.skyboxModelId = 0;
+            skyParams.skyboxHasStars = false;
+            skySystem->render(currentCmd, perFrameSet, *camera, skyParams);
+        }
+
+        if (terrainRenderer && camera && terrainEnabled && !skipTerrain) {
+            auto terrainStart = std::chrono::steady_clock::now();
+            terrainRenderer->render(currentCmd, perFrameSet, *camera);
+            lastTerrainRenderMs = std::chrono::duration<double, std::milli>(
+                std::chrono::steady_clock::now() - terrainStart).count();
+        }
+
+        if (wmoRenderer && camera && !skipWMO) {
+            wmoRenderer->prepareRender();
+            auto wmoStart = std::chrono::steady_clock::now();
+            wmoRenderer->render(currentCmd, perFrameSet, *camera);
+            lastWMORenderMs = std::chrono::duration<double, std::milli>(
+                std::chrono::steady_clock::now() - wmoStart).count();
+        }
+
+        renderSelectionCircle(view, projection);
+
+        if (characterRenderer && camera && !skipChars) {
+            characterRenderer->prepareRender(frameIdx);
+            characterRenderer->render(currentCmd, perFrameSet, *camera);
+        }
+
+        if (m2Renderer && camera && !skipM2) {
+            if (cameraController) {
+                m2Renderer->setInsideInterior(cameraController->isInsideWMO());
+                m2Renderer->setOnTaxi(cameraController->isOnTaxi());
+            }
+            m2Renderer->prepareRender(frameIdx, *camera);
+            auto m2Start = std::chrono::steady_clock::now();
+            m2Renderer->render(currentCmd, perFrameSet, *camera);
+            m2Renderer->renderSmokeParticles(currentCmd, perFrameSet);
+            m2Renderer->renderM2Particles(currentCmd, perFrameSet);
+            lastM2RenderMs = std::chrono::duration<double, std::milli>(
+                std::chrono::steady_clock::now() - m2Start).count();
+        }
+
+        if (waterRenderer && camera)
+            waterRenderer->render(currentCmd, perFrameSet, *camera, globalTime, false, frameIdx);
+        if (weather && camera) weather->render(currentCmd, perFrameSet);
+        if (swimEffects && camera) swimEffects->render(currentCmd, perFrameSet);
+        if (mountDust && camera) mountDust->render(currentCmd, perFrameSet);
+        if (chargeEffect && camera) chargeEffect->render(currentCmd, perFrameSet);
+        if (questMarkerRenderer && camera) questMarkerRenderer->render(currentCmd, perFrameSet, *camera);
     }
 
-    // Minimap overlay
-    if (minimap && minimap->isEnabled() && camera && window) {
-        glm::vec3 minimapCenter = camera->getPosition();
-        if (cameraController && cameraController->isThirdPerson())
-            minimapCenter = characterPosition;
-        float minimapPlayerOrientation = 0.0f;
-        bool hasMinimapPlayerOrientation = false;
-        if (cameraController) {
-            // Use the same yaw that drives character model rendering so minimap
-            // orientation cannot drift by a different axis/sign convention.
-            float facingRad = glm::radians(characterYaw);
-            glm::vec3 facingFwd(std::cos(facingRad), std::sin(facingRad), 0.0f);
-            minimapPlayerOrientation = std::atan2(-facingFwd.x, facingFwd.y);
-            hasMinimapPlayerOrientation = true;
-        } else if (gameHandler) {
-            minimapPlayerOrientation = gameHandler->getMovementInfo().orientation;
-            hasMinimapPlayerOrientation = true;
+    // Underwater overlay and minimap — in the fallback path these run inline;
+    // in the parallel path they were already recorded into SEC_POST above.
+    if (!parallelRecordingEnabled_) {
+        if (overlayPipeline && waterRenderer && camera) {
+            glm::vec3 camPos = camera->getPosition();
+            auto waterH = waterRenderer->getNearestWaterHeightAt(camPos.x, camPos.y, camPos.z);
+            constexpr float MIN_SUBMERSION_OVERLAY = 1.5f;
+            if (waterH && camPos.z < (*waterH - MIN_SUBMERSION_OVERLAY)
+                       && !waterRenderer->isWmoWaterAt(camPos.x, camPos.y)) {
+                float depth = *waterH - camPos.z - MIN_SUBMERSION_OVERLAY;
+                bool canal = false;
+                if (auto lt = waterRenderer->getWaterTypeAt(camPos.x, camPos.y))
+                    canal = (*lt == 5 || *lt == 13 || *lt == 17);
+                float fogStrength = 1.0f - std::exp(-depth * (canal ? 0.25f : 0.12f));
+                fogStrength = glm::clamp(fogStrength, 0.0f, 0.75f);
+                glm::vec4 tint = canal
+                    ? glm::vec4(0.01f, 0.04f, 0.10f, fogStrength)
+                    : glm::vec4(0.03f, 0.09f, 0.18f, fogStrength);
+                renderOverlay(tint);
+            }
         }
-        minimap->render(currentCmd, *camera, minimapCenter,
-                        window->getWidth(), window->getHeight(),
-                        minimapPlayerOrientation, hasMinimapPlayerOrientation);
+        if (minimap && minimap->isEnabled() && camera && window) {
+            glm::vec3 minimapCenter = camera->getPosition();
+            if (cameraController && cameraController->isThirdPerson())
+                minimapCenter = characterPosition;
+            float minimapPlayerOrientation = 0.0f;
+            bool hasMinimapPlayerOrientation = false;
+            if (cameraController) {
+                float facingRad = glm::radians(characterYaw);
+                glm::vec3 facingFwd(std::cos(facingRad), std::sin(facingRad), 0.0f);
+                minimapPlayerOrientation = std::atan2(-facingFwd.x, facingFwd.y);
+                hasMinimapPlayerOrientation = true;
+            } else if (gameHandler) {
+                minimapPlayerOrientation = gameHandler->getMovementInfo().orientation;
+                hasMinimapPlayerOrientation = true;
+            }
+            minimap->render(currentCmd, *camera, minimapCenter,
+                            window->getWidth(), window->getHeight(),
+                            minimapPlayerOrientation, hasMinimapPlayerOrientation);
+        }
     }
 
     auto renderEnd = std::chrono::steady_clock::now();
@@ -3413,8 +3926,6 @@ bool Renderer::initializeRenderers(pipeline::AssetManager* assetManager, const s
         if (!waterRenderer->initialize(vkCtx, perFrameSetLayout)) {
             LOG_ERROR("Failed to initialize water renderer");
             waterRenderer.reset();
-        } else if (vkCtx->getMsaaSamples() != VK_SAMPLE_COUNT_1_BIT) {
-            setupWater1xPass();
         }
     }
 
@@ -3866,6 +4377,128 @@ void Renderer::setupWater1xPass() {
     waterRenderer->createWater1xPass(vkCtx->getSwapchainFormat(), vkCtx->getDepthFormat());
     waterRenderer->createWater1xFramebuffers(
         vkCtx->getSwapchainImageViews(), depthView, vkCtx->getSwapchainExtent());
+}
+
+// ========================= Multithreaded Secondary Command Buffers =========================
+
+bool Renderer::createSecondaryCommandResources() {
+    if (!vkCtx) return false;
+    VkDevice device = vkCtx->getDevice();
+    uint32_t queueFamily = vkCtx->getGraphicsQueueFamily();
+
+    VkCommandPoolCreateInfo poolCI{};
+    poolCI.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+    poolCI.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+    poolCI.queueFamilyIndex = queueFamily;
+
+    // Create worker command pools (one per worker thread)
+    for (uint32_t w = 0; w < NUM_WORKERS; ++w) {
+        if (vkCreateCommandPool(device, &poolCI, nullptr, &workerCmdPools_[w]) != VK_SUCCESS) {
+            LOG_ERROR("Failed to create worker command pool ", w);
+            return false;
+        }
+    }
+
+    // Create main-thread secondary command pool
+    if (vkCreateCommandPool(device, &poolCI, nullptr, &mainSecondaryCmdPool_) != VK_SUCCESS) {
+        LOG_ERROR("Failed to create main secondary command pool");
+        return false;
+    }
+
+    // Allocate secondary command buffers
+    VkCommandBufferAllocateInfo allocInfo{};
+    allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+    allocInfo.level = VK_COMMAND_BUFFER_LEVEL_SECONDARY;
+    allocInfo.commandBufferCount = 1;
+
+    // Worker secondaries: SEC_TERRAIN=1, SEC_WMO=2, SEC_M2=4 → worker pools 0,1,2
+    const uint32_t workerSecondaries[] = { SEC_TERRAIN, SEC_WMO, SEC_M2 };
+    for (uint32_t w = 0; w < NUM_WORKERS; ++w) {
+        allocInfo.commandPool = workerCmdPools_[w];
+        for (uint32_t f = 0; f < MAX_FRAMES; ++f) {
+            if (vkAllocateCommandBuffers(device, &allocInfo, &secondaryCmds_[workerSecondaries[w]][f]) != VK_SUCCESS) {
+                LOG_ERROR("Failed to allocate worker secondary buffer w=", w, " f=", f);
+                return false;
+            }
+        }
+    }
+
+    // Main-thread secondaries: SEC_SKY=0, SEC_CHARS=3, SEC_POST=5, SEC_IMGUI=6
+    const uint32_t mainSecondaries[] = { SEC_SKY, SEC_CHARS, SEC_POST, SEC_IMGUI };
+    for (uint32_t idx : mainSecondaries) {
+        allocInfo.commandPool = mainSecondaryCmdPool_;
+        for (uint32_t f = 0; f < MAX_FRAMES; ++f) {
+            if (vkAllocateCommandBuffers(device, &allocInfo, &secondaryCmds_[idx][f]) != VK_SUCCESS) {
+                LOG_ERROR("Failed to allocate main secondary buffer idx=", idx, " f=", f);
+                return false;
+            }
+        }
+    }
+
+    parallelRecordingEnabled_ = true;
+    LOG_INFO("Multithreaded rendering: ", NUM_WORKERS, " worker threads, ",
+             NUM_SECONDARIES, " secondary buffers [ENABLED]");
+    return true;
+}
+
+void Renderer::destroySecondaryCommandResources() {
+    if (!vkCtx) return;
+    VkDevice device = vkCtx->getDevice();
+    vkDeviceWaitIdle(device);
+
+    // Secondary buffers are freed when their pool is destroyed
+    for (uint32_t w = 0; w < NUM_WORKERS; ++w) {
+        if (workerCmdPools_[w]) {
+            vkDestroyCommandPool(device, workerCmdPools_[w], nullptr);
+            workerCmdPools_[w] = VK_NULL_HANDLE;
+        }
+    }
+    if (mainSecondaryCmdPool_) {
+        vkDestroyCommandPool(device, mainSecondaryCmdPool_, nullptr);
+        mainSecondaryCmdPool_ = VK_NULL_HANDLE;
+    }
+
+    for (auto& arr : secondaryCmds_)
+        for (auto& cmd : arr)
+            cmd = VK_NULL_HANDLE;
+
+    parallelRecordingEnabled_ = false;
+}
+
+VkCommandBuffer Renderer::beginSecondary(uint32_t secondaryIndex) {
+    uint32_t frame = vkCtx->getCurrentFrame();
+    VkCommandBuffer cmd = secondaryCmds_[secondaryIndex][frame];
+
+    VkCommandBufferInheritanceInfo inheritInfo{};
+    inheritInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_INFO;
+    inheritInfo.renderPass = activeRenderPass_;
+    inheritInfo.subpass = 0;
+    inheritInfo.framebuffer = activeFramebuffer_;
+
+    VkCommandBufferBeginInfo beginInfo{};
+    beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT
+                    | VK_COMMAND_BUFFER_USAGE_RENDER_PASS_CONTINUE_BIT;
+    beginInfo.pInheritanceInfo = &inheritInfo;
+
+    VkResult result = vkBeginCommandBuffer(cmd, &beginInfo);
+    if (result != VK_SUCCESS) {
+        LOG_ERROR("vkBeginCommandBuffer failed for secondary ", secondaryIndex,
+                  " frame ", frame, " result=", static_cast<int>(result));
+    }
+    return cmd;
+}
+
+void Renderer::setSecondaryViewportScissor(VkCommandBuffer cmd) {
+    VkViewport vp{};
+    vp.width = static_cast<float>(activeRenderExtent_.width);
+    vp.height = static_cast<float>(activeRenderExtent_.height);
+    vp.maxDepth = 1.0f;
+    vkCmdSetViewport(cmd, 0, 1, &vp);
+
+    VkRect2D sc{};
+    sc.extent = activeRenderExtent_;
+    vkCmdSetScissor(cmd, 0, 1, &sc);
 }
 
 void Renderer::renderReflectionPass() {

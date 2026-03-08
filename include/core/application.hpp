@@ -236,6 +236,11 @@ private:
     std::optional<PendingWorldEntry> pendingWorldEntry_;  // Deferred world entry during loading
     float taxiLandingClampTimer_ = 0.0f;
     float worldEntryMovementGraceTimer_ = 0.0f;
+
+    // Hearth teleport: freeze player until terrain loads at destination
+    bool hearthTeleportPending_ = false;
+    glm::vec3 hearthTeleportPos_{0.0f};  // render coords
+    float hearthTeleportTimer_ = 0.0f;   // timeout safety
     float facingSendCooldown_ = 0.0f;        // Rate-limits MSG_MOVE_SET_FACING
     float lastSentCanonicalYaw_ = 1000.0f;   // Sentinel — triggers first send
     float taxiStreamCooldown_ = 0.0f;

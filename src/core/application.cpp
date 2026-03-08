@@ -1015,14 +1015,33 @@ void Application::update(float deltaTime) {
                     if (renderer && renderer->getCameraController())
                         renderer->getCameraController()->clearMovementInputs();
                 }
+                // Hearth teleport: keep player frozen until terrain loads at destination
+                if (hearthTeleportPending_ && renderer && renderer->getTerrainManager()) {
+                    hearthTeleportTimer_ -= deltaTime;
+                    auto terrainH = renderer->getTerrainManager()->getHeightAt(
+                        hearthTeleportPos_.x, hearthTeleportPos_.y);
+                    if (terrainH || hearthTeleportTimer_ <= 0.0f) {
+                        // Terrain loaded (or timeout) — snap to floor and release
+                        if (terrainH) {
+                            hearthTeleportPos_.z = *terrainH + 0.5f;
+                            renderer->getCameraController()->teleportTo(hearthTeleportPos_);
+                        }
+                        renderer->getCameraController()->setExternalFollow(false);
+                        worldEntryMovementGraceTimer_ = 1.0f;
+                        hearthTeleportPending_ = false;
+                        LOG_INFO("Unstuck hearth: terrain loaded, player released",
+                                 terrainH ? "" : " (timeout)");
+                    }
+                }
                 if (renderer && renderer->getCameraController()) {
                 const bool externallyDrivenMotion = onTaxi || onWMOTransport || chargeActive_;
                 // Keep physics frozen (externalFollow) during landing clamp when terrain
                 // hasn't loaded yet — prevents gravity from pulling player through void.
+                bool hearthFreeze = hearthTeleportPending_;
                 bool landingClampActive = !onTaxi && taxiLandingClampTimer_ > 0.0f &&
                                           worldEntryMovementGraceTimer_ <= 0.0f &&
                                           !gameHandler->isMounted();
-                renderer->getCameraController()->setExternalFollow(externallyDrivenMotion || landingClampActive);
+                renderer->getCameraController()->setExternalFollow(externallyDrivenMotion || landingClampActive || hearthFreeze);
                 renderer->getCameraController()->setExternalMoving(externallyDrivenMotion);
                 if (externallyDrivenMotion) {
                     // Drop any stale local movement toggles while server drives taxi motion.
@@ -1877,9 +1896,43 @@ void Application::setupUICallbacks() {
         LOG_INFO("Unstuck: high fallback snap");
     });
 
+    // /unstuckhearth — teleport to hearthstone bind point (server-synced).
+    // Freezes player until terrain loads at destination to prevent falling through world.
+    gameHandler->setUnstuckHearthCallback([this, clearStuckMovement, forceServerTeleportCommand]() {
+        if (!renderer || !renderer->getCameraController() || !gameHandler) return;
+
+        uint32_t bindMap = 0;
+        glm::vec3 bindPos(0.0f);
+        if (!gameHandler->getHomeBind(bindMap, bindPos)) {
+            LOG_WARNING("Unstuck hearth: no bind point available");
+            return;
+        }
+
+        worldEntryMovementGraceTimer_ = 10.0f;  // long grace — terrain load check will clear it
+        taxiLandingClampTimer_ = 0.0f;
+        lastTaxiFlight_ = false;
+        clearStuckMovement();
+
+        auto* cc = renderer->getCameraController();
+        glm::vec3 renderPos = core::coords::canonicalToRender(bindPos);
+        renderPos.z += 2.0f;
+
+        // Freeze player in place (no gravity/movement) until terrain loads
+        cc->teleportTo(renderPos);
+        cc->setExternalFollow(true);
+        forceServerTeleportCommand(renderPos);
+        clearStuckMovement();
+
+        // Set pending state — update loop will unfreeze once terrain is loaded
+        hearthTeleportPending_ = true;
+        hearthTeleportPos_ = renderPos;
+        hearthTeleportTimer_ = 15.0f;  // 15s safety timeout
+        LOG_INFO("Unstuck hearth: teleporting to bind point, waiting for terrain...");
+    });
+
     // Auto-unstuck: falling for > 5 seconds = void fall, teleport to map entry
     if (renderer->getCameraController()) {
-        renderer->getCameraController()->setAutoUnstuckCallback([this]() {
+        renderer->getCameraController()->setAutoUnstuckCallback([this, forceServerTeleportCommand]() {
             if (!renderer || !renderer->getCameraController()) return;
             auto* cc = renderer->getCameraController();
 
@@ -1887,7 +1940,8 @@ void Application::setupUICallbacks() {
             glm::vec3 spawnPos = cc->getDefaultPosition();
             spawnPos.z += 5.0f;
             cc->teleportTo(spawnPos);
-            LOG_INFO("Auto-unstuck: teleported to map entry point");
+            forceServerTeleportCommand(spawnPos);
+            LOG_INFO("Auto-unstuck: teleported to map entry point (server synced)");
         });
     }
 

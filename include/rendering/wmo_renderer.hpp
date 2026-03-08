@@ -148,6 +148,8 @@ public:
      * @param perFrameSet Per-frame descriptor set (set 0)
      * @param camera Camera for frustum culling
      */
+    /** Pre-update mutable state (frame ID, material UBOs) on main thread before parallel render. */
+    void prepareRender();
     void render(VkCommandBuffer cmd, VkDescriptorSet perFrameSet, const Camera& camera);
 
     /**
@@ -331,6 +333,9 @@ public:
 
     // Defer normal/height map generation during streaming to avoid CPU stalls
     void setDeferNormalMaps(bool defer) { deferNormalMaps_ = defer; }
+
+    // Generate normal/height maps for cached textures that were loaded while deferred
+    void backfillNormalMaps();
 
 private:
     // WMO material UBO — matches WMOMaterial in wmo.frag.glsl
@@ -720,6 +725,8 @@ private:
         uint32_t distanceCulled = 0;
     };
     std::vector<std::future<void>> cullFutures_;
+    std::vector<size_t> visibleInstances_;      // reused per frame
+    std::vector<InstanceDrawList> drawLists_;    // reused per frame
 
     // Collision query profiling (per frame).
     mutable double queryTimeMs = 0.0;

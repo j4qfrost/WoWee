@@ -149,21 +149,21 @@ void main() {
     vec3 norm = vertexNormal;
     if (enableNormalMap != 0 && lodFactor < 0.99 && normalMapStrength > 0.001) {
         vec3 mapNormal = texture(uNormalHeightMap, finalUV).rgb * 2.0 - 1.0;
-        // Scale XY by strength to control effect intensity
-        mapNormal.xy *= normalMapStrength;
         mapNormal = normalize(mapNormal);
         vec3 worldNormal = normalize(TBN * mapNormal);
         if (!gl_FrontFacing) worldNormal = -worldNormal;
-        // Blend: strength + LOD both contribute to fade toward vertex normal
-        float blendFactor = max(lodFactor, 1.0 - normalMapStrength);
-        norm = normalize(mix(worldNormal, vertexNormal, blendFactor));
+        // Linear blend: strength controls how much normal map detail shows,
+        // LOD fades out at distance. Both multiply for smooth falloff.
+        float blend = clamp(normalMapStrength, 0.0, 1.0) * (1.0 - lodFactor);
+        norm = normalize(mix(vertexNormal, worldNormal, blend));
     }
 
     vec3 result;
 
-    // Sample shadow map — skip for interior WMO groups (no sun indoors)
+    // Sample shadow map for all WMO groups (interior groups with 0x2000 flag
+    // include covered outdoor areas like archways/streets that should receive shadows)
     float shadow = 1.0;
-    if (shadowParams.x > 0.5 && isInterior == 0) {
+    if (shadowParams.x > 0.5) {
         vec3 ldir = normalize(-lightDir.xyz);
         float normalOffset = SHADOW_TEXEL * 2.0 * (1.0 - abs(dot(norm, ldir)));
         vec3 biasedPos = FragPos + norm * normalOffset;

@@ -84,6 +84,10 @@ public:
     bool isSwapchainDirty() const { return swapchainDirty; }
     void markSwapchainDirty() { swapchainDirty = true; }
 
+    // VSync (present mode)
+    bool isVsyncEnabled() const { return vsync_; }
+    void setVsync(bool enabled) { vsync_ = enabled; }
+
     bool isDeviceLost() const { return deviceLost_; }
 
     // MSAA
@@ -145,6 +149,7 @@ private:
     std::vector<VkFramebuffer> swapchainFramebuffers;
     bool swapchainDirty = false;
     bool deviceLost_ = false;
+    bool vsync_ = true;
 
     // Per-frame resources
     FrameData frames[MAX_FRAMES_IN_FLIGHT];

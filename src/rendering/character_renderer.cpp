@@ -1924,6 +1924,61 @@ glm::mat4 CharacterRenderer::getBoneTransform(const pipeline::M2Bone& bone, floa
 
 // --- Rendering ---
 
+void CharacterRenderer::prepareRender(uint32_t frameIndex) {
+    if (instances.empty() || !opaquePipeline_) return;
+
+    // Pre-allocate bone SSBOs + descriptor sets on main thread (pool ops not thread-safe)
+    for (auto& [id, instance] : instances) {
+        int numBones = std::min(static_cast<int>(instance.boneMatrices.size()), MAX_BONES);
+        if (numBones <= 0) continue;
+
+        if (!instance.boneBuffer[frameIndex]) {
+            VkBufferCreateInfo bci{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+            bci.size = MAX_BONES * sizeof(glm::mat4);
+            bci.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+            VmaAllocationCreateInfo aci{};
+            aci.usage = VMA_MEMORY_USAGE_CPU_TO_GPU;
+            aci.flags = VMA_ALLOCATION_CREATE_MAPPED_BIT;
+            VmaAllocationInfo allocInfo{};
+            vmaCreateBuffer(vkCtx_->getAllocator(), &bci, &aci,
+                            &instance.boneBuffer[frameIndex], &instance.boneAlloc[frameIndex], &allocInfo);
+            instance.boneMapped[frameIndex] = allocInfo.pMappedData;
+
+            VkDescriptorSetAllocateInfo ai{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
+            ai.descriptorPool = boneDescPool_;
+            ai.descriptorSetCount = 1;
+            ai.pSetLayouts = &boneSetLayout_;
+            VkResult dsRes = vkAllocateDescriptorSets(vkCtx_->getDevice(), &ai, &instance.boneSet[frameIndex]);
+            if (dsRes != VK_SUCCESS) {
+                LOG_ERROR("CharacterRenderer::prepareRender: bone descriptor alloc failed (instance=",
+                          id, ", frame=", frameIndex, ", vk=", static_cast<int>(dsRes), ")");
+                if (instance.boneBuffer[frameIndex]) {
+                    vmaDestroyBuffer(vkCtx_->getAllocator(),
+                                     instance.boneBuffer[frameIndex], instance.boneAlloc[frameIndex]);
+                    instance.boneBuffer[frameIndex] = VK_NULL_HANDLE;
+                    instance.boneAlloc[frameIndex] = VK_NULL_HANDLE;
+                    instance.boneMapped[frameIndex] = nullptr;
+                }
+                continue;
+            }
+
+            if (instance.boneSet[frameIndex]) {
+                VkDescriptorBufferInfo bufInfo{};
+                bufInfo.buffer = instance.boneBuffer[frameIndex];
+                bufInfo.offset = 0;
+                bufInfo.range = bci.size;
+                VkWriteDescriptorSet write{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+                write.dstSet = instance.boneSet[frameIndex];
+                write.dstBinding = 0;
+                write.descriptorCount = 1;
+                write.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+                write.pBufferInfo = &bufInfo;
+                vkUpdateDescriptorSets(vkCtx_->getDevice(), 1, &write, 0, nullptr);
+            }
+        }
+    }
+}
+
 void CharacterRenderer::render(VkCommandBuffer cmd, VkDescriptorSet perFrameSet, [[maybe_unused]] const Camera& camera) {
     if (instances.empty() || !opaquePipeline_) {
         return;

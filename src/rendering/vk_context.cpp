@@ -252,14 +252,22 @@ bool VkContext::createAllocator() {
 bool VkContext::createSwapchain(int width, int height) {
     vkb::SwapchainBuilder swapchainBuilder{physicalDevice, device, surface};
 
-    auto swapRet = swapchainBuilder
+    auto& builder = swapchainBuilder
         .set_desired_format({VK_FORMAT_B8G8R8A8_UNORM, VK_COLOR_SPACE_SRGB_NONLINEAR_KHR})
-        .set_desired_present_mode(VK_PRESENT_MODE_FIFO_KHR) // VSync
         .set_desired_extent(static_cast<uint32_t>(width), static_cast<uint32_t>(height))
         .set_image_usage_flags(VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT)
         .set_desired_min_image_count(2)
-        .set_old_swapchain(swapchain) // For recreation
-        .build();
+        .set_old_swapchain(swapchain);
+
+    if (vsync_) {
+        builder.set_desired_present_mode(VK_PRESENT_MODE_FIFO_KHR);
+    } else {
+        builder.set_desired_present_mode(VK_PRESENT_MODE_IMMEDIATE_KHR);
+        builder.add_fallback_present_mode(VK_PRESENT_MODE_MAILBOX_KHR);
+        builder.add_fallback_present_mode(VK_PRESENT_MODE_FIFO_RELAXED_KHR);
+    }
+
+    auto swapRet = builder.build();
 
     if (!swapRet) {
         LOG_ERROR("Failed to create Vulkan swapchain: ", swapRet.error().message());
@@ -1026,14 +1034,22 @@ bool VkContext::recreateSwapchain(int width, int height) {
     VkSwapchainKHR oldSwapchain = swapchain;
 
     vkb::SwapchainBuilder swapchainBuilder{physicalDevice, device, surface};
-    auto swapRet = swapchainBuilder
+    auto& builder = swapchainBuilder
         .set_desired_format({VK_FORMAT_B8G8R8A8_UNORM, VK_COLOR_SPACE_SRGB_NONLINEAR_KHR})
-        .set_desired_present_mode(VK_PRESENT_MODE_FIFO_KHR)
         .set_desired_extent(static_cast<uint32_t>(width), static_cast<uint32_t>(height))
         .set_image_usage_flags(VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT)
         .set_desired_min_image_count(2)
-        .set_old_swapchain(oldSwapchain)
-        .build();
+        .set_old_swapchain(oldSwapchain);
+
+    if (vsync_) {
+        builder.set_desired_present_mode(VK_PRESENT_MODE_FIFO_KHR);
+    } else {
+        builder.set_desired_present_mode(VK_PRESENT_MODE_IMMEDIATE_KHR);
+        builder.add_fallback_present_mode(VK_PRESENT_MODE_MAILBOX_KHR);
+        builder.add_fallback_present_mode(VK_PRESENT_MODE_FIFO_RELAXED_KHR);
+    }
+
+    auto swapRet = builder.build();
 
     if (oldSwapchain) {
         vkDestroySwapchainKHR(device, oldSwapchain, nullptr);

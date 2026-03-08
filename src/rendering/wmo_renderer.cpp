@@ -787,8 +787,8 @@ bool WMORenderer::loadModel(const pipeline::WMOModel& model, uint32_t id) {
             }
 
             // Build doodad's local transform (WoW coordinates)
-            // WMO doodads use quaternion rotation (X/Y swapped for correct orientation)
-            glm::quat fixedRotation(doodad.rotation.w, doodad.rotation.y, doodad.rotation.x, doodad.rotation.z);
+            // WMO doodads use quaternion rotation
+            glm::quat fixedRotation(doodad.rotation.w, doodad.rotation.x, doodad.rotation.y, doodad.rotation.z);
 
             glm::mat4 localTransform(1.0f);
             localTransform = glm::translate(localTransform, doodad.position);
@@ -1318,15 +1318,10 @@ void WMORenderer::gatherCandidates(const glm::vec3& queryMin, const glm::vec3& q
     }
 }
 
-void WMORenderer::render(VkCommandBuffer cmd, VkDescriptorSet perFrameSet, const Camera& camera) {
+void WMORenderer::prepareRender() {
     ++currentFrameId;
 
-    if (!opaquePipeline_ || instances.empty()) {
-        lastDrawCalls = 0;
-        return;
-    }
-
-    // Update material UBOs if settings changed
+    // Update material UBOs if settings changed (mapped memory writes — main thread only)
     if (materialSettingsDirty_) {
         materialSettingsDirty_ = false;
         static const int pomSampleTable[] = { 16, 32, 64 };
@@ -1335,7 +1330,6 @@ void WMORenderer::render(VkCommandBuffer cmd, VkDescriptorSet perFrameSet, const
             for (auto& group : model.groups) {
                 for (auto& mb : group.mergedBatches) {
                     if (!mb.materialUBO) continue;
-                    // Read existing UBO data, update normal/POM fields
                     VmaAllocationInfo allocInfo{};
                     vmaGetAllocationInfo(vkCtx_->getAllocator(), mb.materialUBOAlloc, &allocInfo);
                     if (allocInfo.pMappedData) {
@@ -1351,6 +1345,13 @@ void WMORenderer::render(VkCommandBuffer cmd, VkDescriptorSet perFrameSet, const
             }
         }
     }
+}
+
+void WMORenderer::render(VkCommandBuffer cmd, VkDescriptorSet perFrameSet, const Camera& camera) {
+    if (!opaquePipeline_ || instances.empty()) {
+        lastDrawCalls = 0;
+        return;
+    }
 
     lastDrawCalls = 0;
 
@@ -1362,43 +1363,45 @@ void WMORenderer::render(VkCommandBuffer cmd, VkDescriptorSet perFrameSet, const
     lastPortalCulledGroups = 0;
     lastDistanceCulledGroups = 0;
 
-    // ── Phase 1: Parallel visibility culling ──────────────────────────
-    std::vector<size_t> visibleInstances;
-    visibleInstances.reserve(instances.size());
+    // ── Phase 1: Visibility culling ──────────────────────────
+    visibleInstances_.clear();
     for (size_t i = 0; i < instances.size(); ++i) {
-        const auto& instance = instances[i];
-        if (loadedModels.find(instance.modelId) == loadedModels.end())
-            continue;
-        visibleInstances.push_back(i);
+        if (loadedModels.count(instances[i].modelId))
+            visibleInstances_.push_back(i);
     }
 
     glm::vec3 camPos = camera.getPosition();
     bool doPortalCull = portalCulling;
-    bool doFrustumCull = false; // Temporarily disabled: can over-cull world WMOs
     bool doDistanceCull = distanceCulling;
 
-    auto cullInstance = [&](size_t instIdx) -> InstanceDrawList {
-        if (instIdx >= instances.size()) return InstanceDrawList{};
+    auto cullInstance = [&](size_t instIdx, InstanceDrawList& result) {
+        if (instIdx >= instances.size()) return;
         const auto& instance = instances[instIdx];
         auto mdlIt = loadedModels.find(instance.modelId);
-        if (mdlIt == loadedModels.end()) return InstanceDrawList{};
+        if (mdlIt == loadedModels.end()) return;
         const ModelData& model = mdlIt->second;
 
-        InstanceDrawList result;
         result.instanceIndex = instIdx;
+        result.visibleGroups.clear();
+        result.portalCulled = 0;
+        result.distanceCulled = 0;
 
-        // Portal-based visibility
-        std::unordered_set<uint32_t> portalVisibleGroups;
+        // Portal-based visibility — use a flat sorted vector instead of unordered_set
+        std::vector<uint32_t> portalVisibleGroups;
         bool usePortalCulling = doPortalCull && !model.portals.empty() && !model.portalRefs.empty();
         if (usePortalCulling) {
+            std::unordered_set<uint32_t> pvgSet;
             glm::vec4 localCamPos = instance.invModelMatrix * glm::vec4(camPos, 1.0f);
             getVisibleGroupsViaPortals(model, glm::vec3(localCamPos), frustum,
-                                       instance.modelMatrix, portalVisibleGroups);
+                                       instance.modelMatrix, pvgSet);
+            portalVisibleGroups.assign(pvgSet.begin(), pvgSet.end());
+            std::sort(portalVisibleGroups.begin(), portalVisibleGroups.end());
         }
 
         for (size_t gi = 0; gi < model.groups.size(); ++gi) {
             if (usePortalCulling &&
-                portalVisibleGroups.find(static_cast<uint32_t>(gi)) == portalVisibleGroups.end()) {
+                !std::binary_search(portalVisibleGroups.begin(), portalVisibleGroups.end(),
+                                    static_cast<uint32_t>(gi))) {
                 result.portalCulled++;
                 continue;
             }
@@ -1414,62 +1417,18 @@ void WMORenderer::render(VkCommandBuffer cmd, VkDescriptorSet perFrameSet, const
                         continue;
                     }
                 }
-
-                if (doFrustumCull && !frustum.intersectsAABB(gMin, gMax))
-                    continue;
             }
 
             result.visibleGroups.push_back(static_cast<uint32_t>(gi));
         }
-        return result;
     };
 
-    // Dispatch culling — parallel when enough instances, sequential otherwise.
-    std::vector<InstanceDrawList> drawLists;
-    drawLists.reserve(visibleInstances.size());
+    // Resize drawLists to match (reuses previous capacity)
+    drawLists_.resize(visibleInstances_.size());
 
-    static const size_t minParallelCullInstances = std::max<size_t>(
-        4, envSizeOrDefault("WOWEE_WMO_CULL_MT_MIN", 128));
-    if (visibleInstances.size() >= minParallelCullInstances && numCullThreads_ > 1) {
-        static const size_t minCullWorkPerThread = std::max<size_t>(
-            16, envSizeOrDefault("WOWEE_WMO_CULL_WORK_PER_THREAD", 64));
-        const size_t maxUsefulThreads = std::max<size_t>(
-            1, (visibleInstances.size() + minCullWorkPerThread - 1) / minCullWorkPerThread);
-        const size_t numThreads = std::min(static_cast<size_t>(numCullThreads_), maxUsefulThreads);
-        if (numThreads <= 1) {
-            for (size_t idx : visibleInstances) {
-                drawLists.push_back(cullInstance(idx));
-            }
-        } else {
-            const size_t chunkSize = visibleInstances.size() / numThreads;
-            const size_t remainder = visibleInstances.size() % numThreads;
-
-            drawLists.resize(visibleInstances.size());
-
-            cullFutures_.clear();
-            if (cullFutures_.capacity() < numThreads) {
-                cullFutures_.reserve(numThreads);
-            }
-
-            size_t start = 0;
-            for (size_t t = 0; t < numThreads; ++t) {
-                const size_t end = start + chunkSize + (t < remainder ? 1 : 0);
-                cullFutures_.push_back(std::async(std::launch::async,
-                    [&, start, end]() {
-                        for (size_t j = start; j < end; ++j) {
-                            drawLists[j] = cullInstance(visibleInstances[j]);
-                        }
-                    }));
-                start = end;
-            }
-
-            for (auto& f : cullFutures_) {
-                f.get();
-            }
-        }
-    } else {
-        for (size_t idx : visibleInstances)
-            drawLists.push_back(cullInstance(idx));
+    // Sequential culling (parallel dispatch overhead > savings for typical instance counts)
+    for (size_t j = 0; j < visibleInstances_.size(); ++j) {
+        cullInstance(visibleInstances_[j], drawLists_[j]);
     }
 
     // ── Phase 2: Vulkan draw ────────────────────────────────
@@ -1484,7 +1443,7 @@ void WMORenderer::render(VkCommandBuffer cmd, VkDescriptorSet perFrameSet, const
     // Track which pipeline is currently bound: 0=opaque, 1=transparent, 2=glass
     int currentPipelineKind = 0;
 
-    for (const auto& dl : drawLists) {
+    for (const auto& dl : drawLists_) {
         if (dl.instanceIndex >= instances.size()) continue;
         const auto& instance = instances[dl.instanceIndex];
         auto modelIt = loadedModels.find(instance.modelId);
@@ -2412,6 +2371,69 @@ VkTexture* WMORenderer::loadTexture(const std::string& path) {
     return rawPtr;
 }
 
+void WMORenderer::backfillNormalMaps() {
+    if (!normalMappingEnabled_ && !pomEnabled_) return;
+
+    if (!assetManager) return;
+
+    int generated = 0;
+    for (auto& [key, entry] : textureCache) {
+        if (entry.normalHeightMap) continue;  // already has one
+        if (!entry.texture) continue;
+
+        // Re-load the BLP from MPQ to get pixel data for normal map generation
+        pipeline::BLPImage blp = assetManager->loadTexture(key);
+        if (!blp.isValid() || blp.width == 0 || blp.height == 0) continue;
+
+        float variance = 0.0f;
+        auto nhMap = generateNormalHeightMap(blp.data.data(), blp.width, blp.height, variance);
+        if (nhMap) {
+            entry.normalHeightMap = std::move(nhMap);
+            entry.heightMapVariance = variance;
+            generated++;
+        }
+    }
+
+    if (generated > 0) {
+        VkDevice device = vkCtx_->getDevice();
+        int rebound = 0;
+        // Update merged batches: assign normal map pointer and rebind descriptor set
+        for (auto& [modelId, model] : loadedModels) {
+            for (auto& group : model.groups) {
+                for (auto& mb : group.mergedBatches) {
+                    if (mb.normalHeightMap) continue;  // already set
+                    if (!mb.texture) continue;
+                    // Find this texture in the cache
+                    for (const auto& [cacheKey, cacheEntry] : textureCache) {
+                        if (cacheEntry.texture.get() == mb.texture) {
+                            if (cacheEntry.normalHeightMap) {
+                                mb.normalHeightMap = cacheEntry.normalHeightMap.get();
+                                mb.heightMapVariance = cacheEntry.heightMapVariance;
+                                // Rebind descriptor set binding 2 to the real normal/height map
+                                if (mb.materialSet) {
+                                    VkDescriptorImageInfo nhImgInfo = mb.normalHeightMap->descriptorInfo();
+                                    VkWriteDescriptorSet write{};
+                                    write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+                                    write.dstSet = mb.materialSet;
+                                    write.dstBinding = 2;
+                                    write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+                                    write.descriptorCount = 1;
+                                    write.pImageInfo = &nhImgInfo;
+                                    vkUpdateDescriptorSets(device, 1, &write, 0, nullptr);
+                                    rebound++;
+                                }
+                            }
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+        materialSettingsDirty_ = true;
+        LOG_INFO("Backfilled ", generated, " normal/height maps (", rebound, " descriptor sets rebound) for deferred WMO textures");
+    }
+}
+
 // Ray-AABB intersection (slab method)
 // Returns true if the ray intersects the axis-aligned bounding box
 static bool rayIntersectsAABB(const glm::vec3& origin, const glm::vec3& dir,
@@ -3145,18 +3167,13 @@ bool WMORenderer::checkWallCollision(const glm::vec3& from, const glm::vec3& to,
                 if (triHeight < 1.0f && tb.maxZ <= localFeetZ + 1.2f) continue;
 
                 // Use MOPY flags to filter wall collision.
-                // Collidable triangles (flag 0x01) block the player — including
-                // invisible collision walls (0x01 without 0x20) used in tunnels.
-                // Skip detail/decorative geometry (0x04) and render-only surfaces.
+                // Collide with triangles that have the collision flag (0x08) or no flags at all.
+                // Skip detail/decorative (0x04) and render-only (0x20 without 0x08) surfaces.
                 uint32_t triIdx = triStart / 3;
                 if (!group.triMopyFlags.empty() && triIdx < group.triMopyFlags.size()) {
                     uint8_t mopy = group.triMopyFlags[triIdx];
                     if (mopy != 0) {
-                        bool collidable = (mopy & 0x01) != 0;
-                        bool detail = (mopy & 0x04) != 0;
-                        if (!collidable || detail) {
-                            continue;
-                        }
+                        if ((mopy & 0x04) || !(mopy & 0x08)) continue;
                     }
                 }
 
@@ -3217,8 +3234,8 @@ bool WMORenderer::checkWallCollision(const glm::vec3& from, const glm::vec3& to,
                     if (absNz >= 0.35f) continue;
 
                     const float SKIN = 0.005f;        // small separation so we don't re-collide immediately
-                    // Stronger push when inside WMO for more responsive indoor collision
-                    const float MAX_PUSH = insideWMO ? 0.35f : 0.15f;
+                    // Push must cover full penetration to prevent gradual clip-through
+                    const float MAX_PUSH = PLAYER_RADIUS;
                     float penetration = (PLAYER_RADIUS - horizDist);
                     float pushDist = glm::clamp(penetration + SKIN, 0.0f, MAX_PUSH);
                     glm::vec2 pushDir2;

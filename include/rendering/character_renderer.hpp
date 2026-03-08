@@ -66,6 +66,8 @@ public:
 
     void update(float deltaTime, const glm::vec3& cameraPos = glm::vec3(0.0f));
 
+    /** Pre-allocate GPU resources (bone SSBOs, descriptors) on main thread before parallel render. */
+    void prepareRender(uint32_t frameIndex);
     void render(VkCommandBuffer cmd, VkDescriptorSet perFrameSet, const Camera& camera);
     void recreatePipelines();
     bool initializeShadow(VkRenderPass shadowRenderPass);

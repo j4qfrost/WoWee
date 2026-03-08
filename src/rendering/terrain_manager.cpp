@@ -911,6 +911,8 @@ bool TerrainManager::advanceFinalization(FinalizingTile& ft) {
             wmoRenderer->setDeferNormalMaps(false);
             wmoRenderer->setPredecodedBLPCache(nullptr);
             if (ft.wmoModelIndex < pending->wmoModels.size()) return false;
+            // All WMO models loaded — backfill normal/height maps that were skipped during streaming
+            wmoRenderer->backfillNormalMaps();
         }
         ft.phase = FinalizationPhase::WMO_INSTANCES;
         return false;

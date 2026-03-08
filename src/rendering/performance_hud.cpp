@@ -1,5 +1,6 @@
 #include "rendering/performance_hud.hpp"
 #include "rendering/renderer.hpp"
+#include "rendering/vk_context.hpp"
 #include "rendering/terrain_renderer.hpp"
 #include "rendering/terrain_manager.hpp"
 #include "rendering/water_renderer.hpp"
@@ -185,6 +186,19 @@ void PerformanceHUD::render(const Renderer* renderer, const Camera* camera) {
             }
             ImGui::PlotLines("##frametime", frameTimesMs.data(), static_cast<int>(frameTimesMs.size()),
                            0, nullptr, 0.0f, 33.33f, ImVec2(200, 40));
+        }
+
+        // FSR info
+        if (renderer->isFSREnabled()) {
+            ImGui::TextColored(ImVec4(0.4f, 1.0f, 0.4f, 1.0f), "FSR 1.0: ON");
+            auto* ctx = renderer->getVkContext();
+            if (ctx) {
+                auto ext = ctx->getSwapchainExtent();
+                float sf = renderer->getFSRScaleFactor();
+                uint32_t iw = static_cast<uint32_t>(ext.width * sf) & ~1u;
+                uint32_t ih = static_cast<uint32_t>(ext.height * sf) & ~1u;
+                ImGui::Text("  %ux%u -> %ux%u (%.0f%%)", iw, ih, ext.width, ext.height, sf * 100.0f);
+            }
         }
 
         ImGui::Spacing();

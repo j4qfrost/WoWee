@@ -565,6 +565,8 @@ public:
     void unstuck();
     void setUnstuckGyCallback(UnstuckCallback cb) { unstuckGyCallback_ = std::move(cb); }
     void unstuckGy();
+    void setUnstuckHearthCallback(UnstuckCallback cb) { unstuckHearthCallback_ = std::move(cb); }
+    void unstuckHearth();
     using BindPointCallback = std::function<void(uint32_t mapId, float x, float y, float z)>;
     void setBindPointCallback(BindPointCallback cb) { bindPointCallback_ = std::move(cb); }
 
@@ -1445,6 +1447,7 @@ private:
     WorldEntryCallback worldEntryCallback_;
     UnstuckCallback unstuckCallback_;
     UnstuckCallback unstuckGyCallback_;
+    UnstuckCallback unstuckHearthCallback_;
     BindPointCallback bindPointCallback_;
     CreatureSpawnCallback creatureSpawnCallback_;
     CreatureDespawnCallback creatureDespawnCallback_;

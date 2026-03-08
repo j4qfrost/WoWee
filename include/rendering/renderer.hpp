@@ -4,10 +4,12 @@
 #include <string>
 #include <cstdint>
 #include <vector>
+#include <future>
 #include <glm/glm.hpp>
 #include <vulkan/vulkan.h>
 #include <vk_mem_alloc.h>
 #include "rendering/vk_frame_data.hpp"
+#include "rendering/vk_utils.hpp"
 #include "rendering/sky_system.hpp"
 
 namespace wowee {
@@ -259,6 +261,14 @@ public:
     float getShadowDistance() const { return shadowDistance_; }
     void setMsaaSamples(VkSampleCountFlagBits samples);
 
+    // FSR 1.0 (FidelityFX Super Resolution) upscaling
+    void setFSREnabled(bool enabled);
+    bool isFSREnabled() const { return fsr_.enabled; }
+    void setFSRQuality(float scaleFactor);  // 0.50=Perf, 0.59=Balanced, 0.67=Quality, 0.77=UltraQuality
+    void setFSRSharpness(float sharpness);  // 0.0 - 2.0
+    float getFSRScaleFactor() const { return fsr_.scaleFactor; }
+    float getFSRSharpness() const { return fsr_.sharpness; }
+
     void setWaterRefractionEnabled(bool enabled);
     bool isWaterRefractionEnabled() const;
 
@@ -312,7 +322,7 @@ private:
     VmaAllocation selCircleIdxAlloc = VK_NULL_HANDLE;
     int selCircleVertCount = 0;
     void initSelectionCircle();
-    void renderSelectionCircle(const glm::mat4& view, const glm::mat4& projection);
+    void renderSelectionCircle(const glm::mat4& view, const glm::mat4& projection, VkCommandBuffer overrideCmd = VK_NULL_HANDLE);
     glm::vec3 selCirclePos{0.0f};
     glm::vec3 selCircleColor{1.0f, 0.0f, 0.0f};
     float selCircleRadius = 1.5f;
@@ -322,7 +332,36 @@ private:
     VkPipeline overlayPipeline = VK_NULL_HANDLE;
     VkPipelineLayout overlayPipelineLayout = VK_NULL_HANDLE;
     void initOverlayPipeline();
-    void renderOverlay(const glm::vec4& color);
+    void renderOverlay(const glm::vec4& color, VkCommandBuffer overrideCmd = VK_NULL_HANDLE);
+
+    // FSR 1.0 upscaling state
+    struct FSRState {
+        bool enabled = false;
+        bool needsRecreate = false;
+        float scaleFactor = 0.77f;  // Ultra Quality default
+        float sharpness = 0.5f;
+        uint32_t internalWidth = 0;
+        uint32_t internalHeight = 0;
+
+        // Off-screen scene target (reduced resolution)
+        AllocatedImage sceneColor{};        // 1x color (non-MSAA render target / MSAA resolve target)
+        AllocatedImage sceneDepth{};        // Depth (matches current MSAA sample count)
+        AllocatedImage sceneMsaaColor{};    // MSAA color target (only when MSAA > 1x)
+        AllocatedImage sceneDepthResolve{}; // Depth resolve (only when MSAA + depth resolve)
+        VkFramebuffer sceneFramebuffer = VK_NULL_HANDLE;
+        VkSampler sceneSampler = VK_NULL_HANDLE;
+
+        // Upscale pipeline
+        VkPipeline pipeline = VK_NULL_HANDLE;
+        VkPipelineLayout pipelineLayout = VK_NULL_HANDLE;
+        VkDescriptorSetLayout descSetLayout = VK_NULL_HANDLE;
+        VkDescriptorPool descPool = VK_NULL_HANDLE;
+        VkDescriptorSet descSet = VK_NULL_HANDLE;
+    };
+    FSRState fsr_;
+    bool initFSRResources();
+    void destroyFSRResources();
+    void renderFSRUpscale();
 
     // Footstep event tracking (animation-driven)
     uint32_t footstepLastAnimationId = 0;
@@ -410,6 +449,36 @@ private:
     void updatePerFrameUBO();
     void setupWater1xPass();
     void renderReflectionPass();
+
+    // ── Multithreaded secondary command buffer recording ──
+    // Indices into secondaryCmds_ arrays
+    static constexpr uint32_t SEC_SKY     = 0;  // sky (main thread)
+    static constexpr uint32_t SEC_TERRAIN = 1;  // terrain (worker 0)
+    static constexpr uint32_t SEC_WMO     = 2;  // WMO (worker 1)
+    static constexpr uint32_t SEC_CHARS   = 3;  // selection circle + characters (main thread)
+    static constexpr uint32_t SEC_M2      = 4;  // M2 + particles + glow (worker 2)
+    static constexpr uint32_t SEC_POST    = 5;  // water + weather + effects (main thread)
+    static constexpr uint32_t SEC_IMGUI   = 6;  // ImGui (main thread, non-FSR only)
+    static constexpr uint32_t NUM_SECONDARIES = 7;
+    static constexpr uint32_t NUM_WORKERS = 3;  // terrain, WMO, M2
+
+    // Per-worker command pools (thread-safe: one pool per thread)
+    VkCommandPool workerCmdPools_[NUM_WORKERS] = {};
+    // Main-thread command pool for its secondary buffers
+    VkCommandPool mainSecondaryCmdPool_ = VK_NULL_HANDLE;
+    // Pre-allocated secondary command buffers [secondaryIndex][frameInFlight]
+    VkCommandBuffer secondaryCmds_[NUM_SECONDARIES][MAX_FRAMES] = {};
+
+    bool parallelRecordingEnabled_ = false;  // set true after pools/buffers created
+    bool createSecondaryCommandResources();
+    void destroySecondaryCommandResources();
+    VkCommandBuffer beginSecondary(uint32_t secondaryIndex);
+    void setSecondaryViewportScissor(VkCommandBuffer cmd);
+
+    // Cached render pass state for secondary buffer inheritance
+    VkRenderPass activeRenderPass_ = VK_NULL_HANDLE;
+    VkFramebuffer activeFramebuffer_ = VK_NULL_HANDLE;
+    VkExtent2D activeRenderExtent_ = {0, 0};
 
     // Active character previews for off-screen rendering
     std::vector<CharacterPreview*> activePreviews_;

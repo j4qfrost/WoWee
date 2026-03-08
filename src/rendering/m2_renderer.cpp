@@ -1602,6 +1602,12 @@ bool M2Renderer::loadModel(const pipeline::M2Model& model, uint32_t modelId) {
         }
     }
 
+    // Pre-compute available LOD levels to avoid per-instance batch iteration
+    gpuModel.availableLODs = 0;
+    for (const auto& b : gpuModel.batches) {
+        if (b.submeshLevel < 8) gpuModel.availableLODs |= (1u << b.submeshLevel);
+    }
+
     models[modelId] = std::move(gpuModel);
 
     LOG_DEBUG("Loaded M2 model: ", model.name, " (", models[modelId].vertexCount, " vertices, ",
@@ -1911,6 +1917,7 @@ static void computeBoneMatrices(const M2ModelGPU& model, M2Instance& instance) {
             instance.boneMatrices[i] = local;
         }
     }
+    instance.bonesDirty = true;
 }
 
 void M2Renderer::update(float deltaTime, const glm::vec3& cameraPos, const glm::mat4& viewProjection) {
@@ -2172,6 +2179,48 @@ void M2Renderer::update(float deltaTime, const glm::vec3& cameraPos, const glm::
 
 }
 
+void M2Renderer::prepareRender(uint32_t frameIndex, const Camera& camera) {
+    if (!initialized_ || instances.empty()) return;
+    (void)camera;  // reserved for future frustum-based culling
+
+    // Pre-allocate bone SSBOs + descriptor sets on main thread (pool ops not thread-safe).
+    // Only iterate animated instances — static doodads don't need bone buffers.
+    for (size_t idx : animatedInstanceIndices_) {
+        if (idx >= instances.size()) continue;
+        auto& instance = instances[idx];
+
+        if (instance.boneMatrices.empty()) continue;
+
+        if (!instance.boneBuffer[frameIndex]) {
+            VkBufferCreateInfo bci{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+            bci.size = 128 * sizeof(glm::mat4);
+            bci.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+            VmaAllocationCreateInfo aci{};
+            aci.usage = VMA_MEMORY_USAGE_CPU_TO_GPU;
+            aci.flags = VMA_ALLOCATION_CREATE_MAPPED_BIT;
+            VmaAllocationInfo allocInfo{};
+            vmaCreateBuffer(vkCtx_->getAllocator(), &bci, &aci,
+                            &instance.boneBuffer[frameIndex], &instance.boneAlloc[frameIndex], &allocInfo);
+            instance.boneMapped[frameIndex] = allocInfo.pMappedData;
+
+            instance.boneSet[frameIndex] = allocateBoneSet();
+            if (instance.boneSet[frameIndex]) {
+                VkDescriptorBufferInfo bufInfo{};
+                bufInfo.buffer = instance.boneBuffer[frameIndex];
+                bufInfo.offset = 0;
+                bufInfo.range = bci.size;
+                VkWriteDescriptorSet write{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+                write.dstSet = instance.boneSet[frameIndex];
+                write.dstBinding = 0;
+                write.descriptorCount = 1;
+                write.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+                write.pBufferInfo = &bufInfo;
+                vkUpdateDescriptorSets(vkCtx_->getDevice(), 1, &write, 0, nullptr);
+            }
+        }
+    }
+}
+
 void M2Renderer::render(VkCommandBuffer cmd, VkDescriptorSet perFrameSet, const Camera& camera) {
     if (instances.empty() || !opaquePipeline_) {
         return;
@@ -2254,8 +2303,8 @@ void M2Renderer::render(VkCommandBuffer cmd, VkDescriptorSet perFrameSet, const 
     }
 
     // Sort by modelId to minimize vertex/index buffer rebinds
-    std::stable_sort(sortedVisible_.begin(), sortedVisible_.end(),
-                     [](const VisibleEntry& a, const VisibleEntry& b) { return a.modelId < b.modelId; });
+    std::sort(sortedVisible_.begin(), sortedVisible_.end(),
+              [](const VisibleEntry& a, const VisibleEntry& b) { return a.modelId < b.modelId; });
 
     uint32_t currentModelId = UINT32_MAX;
     const M2ModelGPU* currentModel = nullptr;
@@ -2330,44 +2379,22 @@ void M2Renderer::render(VkCommandBuffer cmd, VkDescriptorSet perFrameSet, const 
             }
         }
 
-        // Upload bone matrices to SSBO if model has skeletal animation
-        bool useBones = model.hasAnimation && !model.disableAnimation && !instance.boneMatrices.empty();
+        // Upload bone matrices to SSBO if model has skeletal animation.
+        // Bone buffers are pre-allocated by prepareRender() on the main thread.
+        // If not yet allocated (race/timing), skip this instance entirely to avoid
+        // a bind-pose flash — it will render correctly next frame.
+        bool needsBones = model.hasAnimation && !model.disableAnimation && !instance.boneMatrices.empty();
+        if (needsBones && (!instance.boneBuffer[frameIndex] || !instance.boneSet[frameIndex])) {
+            continue;
+        }
+        bool useBones = needsBones;
         if (useBones) {
-            // Lazy-allocate bone SSBO on first use
-            if (!instance.boneBuffer[frameIndex]) {
-                VkBufferCreateInfo bci{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
-                bci.size = 128 * sizeof(glm::mat4); // max 128 bones
-                bci.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
-                VmaAllocationCreateInfo aci{};
-                aci.usage = VMA_MEMORY_USAGE_CPU_TO_GPU;
-                aci.flags = VMA_ALLOCATION_CREATE_MAPPED_BIT;
-                VmaAllocationInfo allocInfo{};
-                vmaCreateBuffer(vkCtx_->getAllocator(), &bci, &aci,
-                                &instance.boneBuffer[frameIndex], &instance.boneAlloc[frameIndex], &allocInfo);
-                instance.boneMapped[frameIndex] = allocInfo.pMappedData;
-
-                // Allocate descriptor set for bone SSBO
-                instance.boneSet[frameIndex] = allocateBoneSet();
-                if (instance.boneSet[frameIndex]) {
-                    VkDescriptorBufferInfo bufInfo{};
-                    bufInfo.buffer = instance.boneBuffer[frameIndex];
-                    bufInfo.offset = 0;
-                    bufInfo.range = bci.size;
-                    VkWriteDescriptorSet write{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
-                    write.dstSet = instance.boneSet[frameIndex];
-                    write.dstBinding = 0;
-                    write.descriptorCount = 1;
-                    write.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-                    write.pBufferInfo = &bufInfo;
-                    vkUpdateDescriptorSets(vkCtx_->getDevice(), 1, &write, 0, nullptr);
-                }
-            }
-
-            // Upload bone matrices
-            if (instance.boneMapped[frameIndex]) {
+            // Upload bone matrices only when recomputed (skip frame-skipped instances)
+            if (instance.bonesDirty && instance.boneMapped[frameIndex]) {
                 int numBones = std::min(static_cast<int>(instance.boneMatrices.size()), 128);
                 memcpy(instance.boneMapped[frameIndex], instance.boneMatrices.data(),
                        numBones * sizeof(glm::mat4));
+                instance.bonesDirty = false;
             }
 
             // Bind bone descriptor set (set 2)
@@ -2384,12 +2411,8 @@ void M2Renderer::render(VkCommandBuffer cmd, VkDescriptorSet perFrameSet, const 
         else if (entry.distSq > 40.0f * 40.0f) desiredLOD = 1;
 
         uint16_t targetLOD = desiredLOD;
-        if (desiredLOD > 0) {
-            bool hasDesiredLOD = false;
-            for (const auto& b : model.batches) {
-                if (b.submeshLevel == desiredLOD) { hasDesiredLOD = true; break; }
-            }
-            if (!hasDesiredLOD) targetLOD = 0;
+        if (desiredLOD > 0 && !(model.availableLODs & (1u << desiredLOD))) {
+            targetLOD = 0;
         }
 
         const bool foliageLikeModel = model.isFoliageLike;

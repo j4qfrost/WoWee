@@ -84,6 +84,7 @@ bool Window::initialize() {
 
     // Initialize Vulkan context
     vkContext = std::make_unique<rendering::VkContext>();
+    vkContext->setVsync(vsync);
     if (!vkContext->initialize(window)) {
         LOG_ERROR("Failed to initialize Vulkan context");
         return false;
@@ -158,11 +159,13 @@ void Window::setFullscreen(bool enable) {
     }
 }
 
-void Window::setVsync([[maybe_unused]] bool enable) {
-    // VSync in Vulkan is controlled by present mode (set at swapchain creation)
-    // For now, store the preference — applied on next swapchain recreation
+void Window::setVsync(bool enable) {
     vsync = enable;
-    LOG_INFO("VSync preference set to ", enable ? "on" : "off", " (applied on swapchain recreation)");
+    if (vkContext) {
+        vkContext->setVsync(enable);
+        vkContext->markSwapchainDirty();
+    }
+    LOG_INFO("VSync ", enable ? "enabled" : "disabled");
 }
 
 void Window::applyResolution(int w, int h) {

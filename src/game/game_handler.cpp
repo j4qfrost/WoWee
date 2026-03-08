@@ -11435,6 +11435,15 @@ void GameHandler::unstuckGy() {
     }
 }
 
+void GameHandler::unstuckHearth() {
+    if (unstuckHearthCallback_) {
+        unstuckHearthCallback_();
+        addSystemChatMessage("Unstuck: teleported to hearthstone location.");
+    } else {
+        addSystemChatMessage("No hearthstone bind point set.");
+    }
+}
+
 void GameHandler::handleLootResponse(network::Packet& packet) {
     if (!LootResponseParser::parse(packet, currentLoot)) return;
     lootWindowOpen = true;

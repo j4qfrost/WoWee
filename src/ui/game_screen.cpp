@@ -317,6 +317,20 @@ void GameScreen::render(game::GameHandler& gameHandler) {
         }
     }
 
+    // Apply saved FSR setting once when renderer is available
+    if (!fsrSettingsApplied_ && pendingFSR) {
+        auto* renderer = core::Application::getInstance().getRenderer();
+        if (renderer) {
+            static const float fsrScales[] = { 0.77f, 0.67f, 0.59f, 0.50f };
+            renderer->setFSRQuality(fsrScales[pendingFSRQuality]);
+            renderer->setFSRSharpness(pendingFSRSharpness);
+            renderer->setFSREnabled(true);
+            fsrSettingsApplied_ = true;
+        }
+    } else {
+        fsrSettingsApplied_ = true;
+    }
+
     // Apply auto-loot setting to GameHandler every frame (cheap bool sync)
     gameHandler.setAutoLoot(pendingAutoLoot);
 
@@ -2684,6 +2698,12 @@ void GameScreen::sendChatMessage(game::GameHandler& gameHandler) {
             // /unstuckgy command — move to nearest graveyard
             if (cmdLower == "unstuckgy") {
                 gameHandler.unstuckGy();
+                chatInputBuffer[0] = '\0';
+                return;
+            }
+            // /unstuckhearth command — teleport to hearthstone bind point
+            if (cmdLower == "unstuckhearth") {
+                gameHandler.unstuckHearth();
                 chatInputBuffer[0] = '\0';
                 return;
             }
@@ -6270,6 +6290,25 @@ void GameScreen::renderSettingsWindow() {
                         saveSettings();
                     }
                 }
+                // FSR 1.0 Upscaling
+                {
+                    if (ImGui::Checkbox("FSR Upscaling (Experimental)", &pendingFSR)) {
+                        if (renderer) renderer->setFSREnabled(pendingFSR);
+                        saveSettings();
+                    }
+                    if (pendingFSR) {
+                        const char* fsrQualityLabels[] = { "Ultra Quality (77%)", "Quality (67%)", "Balanced (59%)", "Performance (50%)" };
+                        static const float fsrScaleFactors[] = { 0.77f, 0.67f, 0.59f, 0.50f };
+                        if (ImGui::Combo("FSR Quality", &pendingFSRQuality, fsrQualityLabels, 4)) {
+                            if (renderer) renderer->setFSRQuality(fsrScaleFactors[pendingFSRQuality]);
+                            saveSettings();
+                        }
+                        if (ImGui::SliderFloat("FSR Sharpness", &pendingFSRSharpness, 0.0f, 2.0f, "%.1f")) {
+                            if (renderer) renderer->setFSRSharpness(pendingFSRSharpness);
+                            saveSettings();
+                        }
+                    }
+                }
                 if (ImGui::SliderInt("Ground Clutter Density", &pendingGroundClutterDensity, 0, 150, "%d%%")) {
                     if (renderer) {
                         if (auto* tm = renderer->getTerrainManager()) {
@@ -7384,6 +7423,9 @@ void GameScreen::saveSettings() {
     out << "normal_map_strength=" << pendingNormalMapStrength << "\n";
     out << "pom=" << (pendingPOM ? 1 : 0) << "\n";
     out << "pom_quality=" << pendingPOMQuality << "\n";
+    out << "fsr=" << (pendingFSR ? 1 : 0) << "\n";
+    out << "fsr_quality=" << pendingFSRQuality << "\n";
+    out << "fsr_sharpness=" << pendingFSRSharpness << "\n";
 
     // Controls
     out << "mouse_sensitivity=" << pendingMouseSensitivity << "\n";
@@ -7470,6 +7512,9 @@ void GameScreen::loadSettings() {
             else if (key == "normal_map_strength") pendingNormalMapStrength = std::clamp(std::stof(val), 0.0f, 2.0f);
             else if (key == "pom") pendingPOM = (std::stoi(val) != 0);
             else if (key == "pom_quality") pendingPOMQuality = std::clamp(std::stoi(val), 0, 2);
+            else if (key == "fsr") pendingFSR = (std::stoi(val) != 0);
+            else if (key == "fsr_quality") pendingFSRQuality = std::clamp(std::stoi(val), 0, 3);
+            else if (key == "fsr_sharpness") pendingFSRSharpness = std::clamp(std::stof(val), 0.0f, 2.0f);
             // Controls
             else if (key == "mouse_sensitivity") pendingMouseSensitivity = std::clamp(std::stof(val), 0.05f, 1.0f);
             else if (key == "invert_mouse") pendingInvertMouse = (std::stoi(val) != 0);
