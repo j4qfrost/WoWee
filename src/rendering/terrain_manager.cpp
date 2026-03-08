@@ -816,7 +816,7 @@ bool TerrainManager::advanceFinalization(FinalizingTile& ft) {
             }
             bool allDone = terrainRenderer->loadTerrainIncremental(
                 pending->mesh, pending->terrain.textures, x, y,
-                ft.terrainChunkNext, 32);
+                ft.terrainChunkNext, 16);
             if (!allDone) {
                 return false; // More chunks remain — yield to time budget
             }
@@ -858,7 +858,7 @@ bool TerrainManager::advanceFinalization(FinalizingTile& ft) {
                 std::lock_guard<std::mutex> lk(queueMutex);
                 workersIdle = loadQueue.empty() && readyQueue.empty();
             }
-            const size_t kModelsPerStep = workersIdle ? 16 : 4;
+            const size_t kModelsPerStep = workersIdle ? 6 : 4;
             size_t uploaded = 0;
             while (ft.m2ModelIndex < pending->m2Models.size() && uploaded < kModelsPerStep) {
                 auto& m2Ready = pending->m2Models[ft.m2ModelIndex];
@@ -925,7 +925,7 @@ bool TerrainManager::advanceFinalization(FinalizingTile& ft) {
                 std::lock_guard<std::mutex> lk(queueMutex);
                 wmoWorkersIdle = loadQueue.empty() && readyQueue.empty();
             }
-            const size_t kWmosPerStep = wmoWorkersIdle ? 4 : 1;
+            const size_t kWmosPerStep = wmoWorkersIdle ? 2 : 1;
             size_t uploaded = 0;
             while (ft.wmoModelIndex < pending->wmoModels.size() && uploaded < kWmosPerStep) {
                 auto& wmoReady = pending->wmoModels[ft.wmoModelIndex];
@@ -1207,7 +1207,7 @@ void TerrainManager::processReadyTiles() {
     // Async upload batch: record GPU copies into a command buffer, submit with
     // a fence, but DON'T wait.  The fence is polled on subsequent frames.
     // This eliminates the main-thread stall from vkWaitForFences entirely.
-    const int maxSteps = taxiStreamingMode_ ? 8 : 2;
+    const int maxSteps = taxiStreamingMode_ ? 4 : 1;
     int steps = 0;
 
     if (vkCtx) vkCtx->beginUploadBatch();
