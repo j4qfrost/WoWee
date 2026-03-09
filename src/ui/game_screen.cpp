@@ -324,6 +324,7 @@ void GameScreen::render(game::GameHandler& gameHandler) {
             static const float fsrScales[] = { 0.77f, 0.67f, 0.59f, 0.50f };
             renderer->setFSRQuality(fsrScales[pendingFSRQuality]);
             renderer->setFSRSharpness(pendingFSRSharpness);
+            renderer->setFSR2DebugTuning(pendingFSR2JitterSign, pendingFSR2MotionVecScaleX, pendingFSR2MotionVecScaleY);
             // Safety fallback: persisted FSR2 can still hang on some systems during startup.
             // Require explicit opt-in for startup FSR2; otherwise fall back to FSR1.
             const bool allowStartupFsr2 = (std::getenv("WOWEE_ALLOW_STARTUP_FSR2") != nullptr);
@@ -6345,6 +6346,37 @@ void GameScreen::renderSettingsWindow() {
                             if (renderer) renderer->setFSRSharpness(pendingFSRSharpness);
                             saveSettings();
                         }
+                        if (fsrMode == 2) {
+                            ImGui::SeparatorText("FSR2 Tuning");
+                            if (ImGui::SliderFloat("Jitter Sign", &pendingFSR2JitterSign, -2.0f, 2.0f, "%.2f")) {
+                                if (renderer) {
+                                    renderer->setFSR2DebugTuning(
+                                        pendingFSR2JitterSign,
+                                        pendingFSR2MotionVecScaleX,
+                                        pendingFSR2MotionVecScaleY);
+                                }
+                                saveSettings();
+                            }
+                            if (ImGui::SliderFloat("MV Scale X", &pendingFSR2MotionVecScaleX, -2.0f, 2.0f, "%.2f")) {
+                                if (renderer) {
+                                    renderer->setFSR2DebugTuning(
+                                        pendingFSR2JitterSign,
+                                        pendingFSR2MotionVecScaleX,
+                                        pendingFSR2MotionVecScaleY);
+                                }
+                                saveSettings();
+                            }
+                            if (ImGui::SliderFloat("MV Scale Y", &pendingFSR2MotionVecScaleY, -2.0f, 2.0f, "%.2f")) {
+                                if (renderer) {
+                                    renderer->setFSR2DebugTuning(
+                                        pendingFSR2JitterSign,
+                                        pendingFSR2MotionVecScaleX,
+                                        pendingFSR2MotionVecScaleY);
+                                }
+                                saveSettings();
+                            }
+                            ImGui::TextDisabled("Tip: default is jitter=-1, mv=(1,1).");
+                        }
                     }
                 }
                 if (ImGui::SliderInt("Ground Clutter Density", &pendingGroundClutterDensity, 0, 150, "%d%%")) {
@@ -7465,6 +7497,9 @@ void GameScreen::saveSettings() {
     out << "fsr=" << (pendingFSR ? 1 : 0) << "\n";
     out << "fsr_quality=" << pendingFSRQuality << "\n";
     out << "fsr_sharpness=" << pendingFSRSharpness << "\n";
+    out << "fsr2_jitter_sign=" << pendingFSR2JitterSign << "\n";
+    out << "fsr2_mv_scale_x=" << pendingFSR2MotionVecScaleX << "\n";
+    out << "fsr2_mv_scale_y=" << pendingFSR2MotionVecScaleY << "\n";
 
     // Controls
     out << "mouse_sensitivity=" << pendingMouseSensitivity << "\n";
@@ -7561,6 +7596,9 @@ void GameScreen::loadSettings() {
             }
             else if (key == "fsr_quality") pendingFSRQuality = std::clamp(std::stoi(val), 0, 3);
             else if (key == "fsr_sharpness") pendingFSRSharpness = std::clamp(std::stof(val), 0.0f, 2.0f);
+            else if (key == "fsr2_jitter_sign") pendingFSR2JitterSign = std::clamp(std::stof(val), -2.0f, 2.0f);
+            else if (key == "fsr2_mv_scale_x") pendingFSR2MotionVecScaleX = std::clamp(std::stof(val), -2.0f, 2.0f);
+            else if (key == "fsr2_mv_scale_y") pendingFSR2MotionVecScaleY = std::clamp(std::stof(val), -2.0f, 2.0f);
             // Controls
             else if (key == "mouse_sensitivity") pendingMouseSensitivity = std::clamp(std::stof(val), 0.05f, 1.0f);
             else if (key == "invert_mouse") pendingInvertMouse = (std::stoi(val) != 0);

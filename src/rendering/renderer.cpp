@@ -4323,13 +4323,11 @@ void Renderer::dispatchAmdFsr2() {
         L"FSR2_Output", FFX_RESOURCE_STATE_UNORDERED_ACCESS);
 
     // Camera jitter is stored as NDC projection offsets; convert to render-pixel offsets.
-    // AMD jitter convention is opposite our projection offset sign in Vulkan space.
-    const float jitterSign = static_cast<float>(envIntOrDefault("WOWEE_FSR2_JITTER_SIGN", -1));
     glm::vec2 jitterNdc = camera->getJitter();
-    desc.jitterOffset.x = jitterSign * jitterNdc.x * 0.5f * static_cast<float>(fsr2_.internalWidth);
-    desc.jitterOffset.y = jitterSign * jitterNdc.y * 0.5f * static_cast<float>(fsr2_.internalHeight);
-    desc.motionVectorScale.x = static_cast<float>(fsr2_.internalWidth);
-    desc.motionVectorScale.y = static_cast<float>(fsr2_.internalHeight);
+    desc.jitterOffset.x = fsr2_.jitterSign * jitterNdc.x * 0.5f * static_cast<float>(fsr2_.internalWidth);
+    desc.jitterOffset.y = fsr2_.jitterSign * jitterNdc.y * 0.5f * static_cast<float>(fsr2_.internalHeight);
+    desc.motionVectorScale.x = static_cast<float>(fsr2_.internalWidth) * fsr2_.motionVecScaleX;
+    desc.motionVectorScale.y = static_cast<float>(fsr2_.internalHeight) * fsr2_.motionVecScaleY;
     desc.renderSize.width = fsr2_.internalWidth;
     desc.renderSize.height = fsr2_.internalHeight;
     desc.enableSharpening = false;  // Keep existing RCAS post pass.
@@ -4413,6 +4411,12 @@ void Renderer::setFSR2Enabled(bool enabled) {
         fsr2_.needsRecreate = true;
         if (camera) camera->clearJitter();
     }
+}
+
+void Renderer::setFSR2DebugTuning(float jitterSign, float motionVecScaleX, float motionVecScaleY) {
+    fsr2_.jitterSign = glm::clamp(jitterSign, -2.0f, 2.0f);
+    fsr2_.motionVecScaleX = glm::clamp(motionVecScaleX, -2.0f, 2.0f);
+    fsr2_.motionVecScaleY = glm::clamp(motionVecScaleY, -2.0f, 2.0f);
 }
 
 // ========================= End FSR 2.2 =========================

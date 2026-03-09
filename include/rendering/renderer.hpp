@@ -274,6 +274,10 @@ public:
     float getFSRSharpness() const { return fsr_.sharpness; }
     void setFSR2Enabled(bool enabled);
     bool isFSR2Enabled() const { return fsr2_.enabled; }
+    void setFSR2DebugTuning(float jitterSign, float motionVecScaleX, float motionVecScaleY);
+    float getFSR2JitterSign() const { return fsr2_.jitterSign; }
+    float getFSR2MotionVecScaleX() const { return fsr2_.motionVecScaleX; }
+    float getFSR2MotionVecScaleY() const { return fsr2_.motionVecScaleY; }
 #if WOWEE_HAS_AMD_FSR2
     bool isAmdFsr2SdkAvailable() const { return true; }
 #else
@@ -425,6 +429,9 @@ private:
         uint32_t frameIndex = 0;
         bool needsHistoryReset = true;
         bool useAmdBackend = false;
+        float jitterSign = -1.0f;
+        float motionVecScaleX = 1.0f;
+        float motionVecScaleY = 1.0f;
 #if WOWEE_HAS_AMD_FSR2
         FfxFsr2Context amdContext{};
         FfxFsr2Interface amdInterface{};

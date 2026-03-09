@@ -200,6 +200,13 @@ void PerformanceHUD::render(const Renderer* renderer, const Camera* camera) {
                 ImGui::Text("  %ux%u -> %ux%u (%.0f%%)", iw, ih, ext.width, ext.height, sf * 100.0f);
             }
         }
+        if (renderer->isFSR2Enabled()) {
+            ImGui::TextColored(ImVec4(0.4f, 0.9f, 1.0f, 1.0f), "FSR 2.2: ON");
+            ImGui::Text("  JitterSign=%.2f MVScale=(%.2f, %.2f)",
+                        renderer->getFSR2JitterSign(),
+                        renderer->getFSR2MotionVecScaleX(),
+                        renderer->getFSR2MotionVecScaleY());
+        }
 
         ImGui::Spacing();
     }
