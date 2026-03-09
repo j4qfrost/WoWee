@@ -2399,12 +2399,32 @@ void GameHandler::handlePacket(network::Packet& packet) {
         case Opcode::SMSG_PARTY_MEMBER_STATS_FULL:
             handlePartyMemberStats(packet, true);
             break;
-        case Opcode::MSG_RAID_READY_CHECK:
-            // Server ready-check prompt (minimal handling for now).
-            packet.setReadPos(packet.getSize());
+        case Opcode::MSG_RAID_READY_CHECK: {
+            // Server is broadcasting a ready check (someone in the raid initiated it).
+            // Payload: empty body, or optional uint64 initiator GUID in some builds.
+            pendingReadyCheck_ = true;
+            readyCheckInitiator_.clear();
+            if (packet.getSize() - packet.getReadPos() >= 8) {
+                uint64_t initiatorGuid = packet.readUInt64();
+                auto entity = entityManager.getEntity(initiatorGuid);
+                if (auto* unit = dynamic_cast<Unit*>(entity.get())) {
+                    readyCheckInitiator_ = unit->getName();
+                }
+            }
+            if (readyCheckInitiator_.empty() && partyData.leaderGuid != 0) {
+                // Identify initiator from party leader
+                for (const auto& member : partyData.members) {
+                    if (member.guid == partyData.leaderGuid) { readyCheckInitiator_ = member.name; break; }
+                }
+            }
+            addSystemChatMessage(readyCheckInitiator_.empty()
+                ? "Ready check initiated!"
+                : readyCheckInitiator_ + " initiated a ready check!");
+            LOG_INFO("MSG_RAID_READY_CHECK: initiator=", readyCheckInitiator_);
             break;
+        }
         case Opcode::MSG_RAID_READY_CHECK_CONFIRM:
-            // Ready-check responses from members.
+            // Another member responded to the ready check — consume.
             packet.setReadPos(packet.getSize());
             break;
         case Opcode::SMSG_RAID_INSTANCE_INFO:
@@ -2686,6 +2706,40 @@ void GameHandler::handlePacket(network::Packet& packet) {
             }
             break;
         }
+        case Opcode::SMSG_SET_FACTION_STANDING: {
+            // uint8 showVisualEffect + uint32 count + count × (uint32 factionId + int32 standing)
+            if (packet.getSize() - packet.getReadPos() < 5) break;
+            /*uint8_t showVisual =*/ packet.readUInt8();
+            uint32_t count = packet.readUInt32();
+            count = std::min(count, 128u);
+            loadFactionNameCache();
+            for (uint32_t i = 0; i < count && packet.getSize() - packet.getReadPos() >= 8; ++i) {
+                uint32_t factionId = packet.readUInt32();
+                int32_t  standing  = static_cast<int32_t>(packet.readUInt32());
+                int32_t  oldStanding = 0;
+                auto it = factionStandings_.find(factionId);
+                if (it != factionStandings_.end()) oldStanding = it->second;
+                factionStandings_[factionId] = standing;
+                int32_t delta = standing - oldStanding;
+                if (delta != 0) {
+                    std::string name = getFactionName(factionId);
+                    char buf[256];
+                    std::snprintf(buf, sizeof(buf), "Reputation with %s %s by %d.",
+                                  name.c_str(),
+                                  delta > 0 ? "increased" : "decreased",
+                                  std::abs(delta));
+                    addSystemChatMessage(buf);
+                }
+                LOG_DEBUG("SMSG_SET_FACTION_STANDING: faction=", factionId, " standing=", standing);
+            }
+            break;
+        }
+        case Opcode::SMSG_SET_FACTION_ATWAR:
+        case Opcode::SMSG_SET_FACTION_VISIBLE:
+            // uint32 factionId [+ uint8 flags for ATWAR] — consume; hostility is tracked via update fields
+            packet.setReadPos(packet.getSize());
+            break;
+
         case Opcode::SMSG_FEATURE_SYSTEM_STATUS:
         case Opcode::SMSG_SET_FLAT_SPELL_MODIFIER:
         case Opcode::SMSG_SET_PCT_SPELL_MODIFIER:
@@ -15910,6 +15964,56 @@ void GameHandler::handleAchievementEarned(network::Packet& packet) {
 
     LOG_INFO("SMSG_ACHIEVEMENT_EARNED: guid=0x", std::hex, guid, std::dec,
              " achievementId=", achievementId, " self=", isSelf);
+}
+
+// ---------------------------------------------------------------------------
+// Faction name cache (lazily loaded from Faction.dbc)
+// ---------------------------------------------------------------------------
+
+void GameHandler::loadFactionNameCache() {
+    if (factionNameCacheLoaded_) return;
+    factionNameCacheLoaded_ = true;
+
+    auto* am = core::Application::getInstance().getAssetManager();
+    if (!am || !am->isInitialized()) return;
+
+    auto dbc = am->loadDBC("Faction.dbc");
+    if (!dbc || !dbc->isLoaded()) return;
+
+    // Faction.dbc WotLK 3.3.5a field layout:
+    //   0: ID
+    //   1-4:  ReputationRaceMask[4]
+    //   5-8:  ReputationClassMask[4]
+    //   9-12: ReputationBase[4]
+    //  13-16: ReputationFlags[4]
+    //  17:    ParentFactionID
+    //  18-19: Spillover rates (floats)
+    //  20-21: MaxRank
+    //  22:    Name (English locale, string ref)
+    constexpr uint32_t ID_FIELD   = 0;
+    constexpr uint32_t NAME_FIELD = 22;  // enUS name string
+
+    if (dbc->getFieldCount() <= NAME_FIELD) {
+        LOG_WARNING("Faction.dbc: unexpected field count ", dbc->getFieldCount());
+        return;
+    }
+
+    uint32_t count = dbc->getRecordCount();
+    for (uint32_t i = 0; i < count; ++i) {
+        uint32_t factionId = dbc->getUInt32(i, ID_FIELD);
+        if (factionId == 0) continue;
+        std::string name = dbc->getString(i, NAME_FIELD);
+        if (!name.empty()) {
+            factionNameCache_[factionId] = std::move(name);
+        }
+    }
+    LOG_INFO("Faction.dbc: loaded ", factionNameCache_.size(), " faction names");
+}
+
+std::string GameHandler::getFactionName(uint32_t factionId) const {
+    auto it = factionNameCache_.find(factionId);
+    if (it != factionNameCache_.end()) return it->second;
+    return "faction #" + std::to_string(factionId);
 }
 
 } // namespace game

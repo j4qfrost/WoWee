@@ -404,6 +404,7 @@ void GameScreen::render(game::GameHandler& gameHandler) {
     renderSharedQuestPopup(gameHandler);
     renderItemTextWindow(gameHandler);
     renderGuildInvitePopup(gameHandler);
+    renderReadyCheckPopup(gameHandler);
     renderGuildRoster(gameHandler);
     renderBuffBar(gameHandler);
     renderLootWindow(gameHandler);
@@ -4645,6 +4646,38 @@ void GameScreen::renderGuildInvitePopup(game::GameHandler& gameHandler) {
         ImGui::SameLine();
         if (ImGui::Button("Decline", ImVec2(155, 30))) {
             gameHandler.declineGuildInvite();
+        }
+    }
+    ImGui::End();
+}
+
+void GameScreen::renderReadyCheckPopup(game::GameHandler& gameHandler) {
+    if (!gameHandler.hasPendingReadyCheck()) return;
+
+    auto* window = core::Application::getInstance().getWindow();
+    float screenW = window ? static_cast<float>(window->getWidth()) : 1280.0f;
+    float screenH = window ? static_cast<float>(window->getHeight()) : 720.0f;
+
+    ImGui::SetNextWindowPos(ImVec2(screenW / 2 - 175, screenH / 2 - 60), ImGuiCond_Always);
+    ImGui::SetNextWindowSize(ImVec2(350, 0), ImGuiCond_Always);
+
+    if (ImGui::Begin("Ready Check", nullptr, ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoResize)) {
+        const std::string& initiator = gameHandler.getReadyCheckInitiator();
+        if (initiator.empty()) {
+            ImGui::Text("A ready check has been initiated!");
+        } else {
+            ImGui::TextWrapped("%s has initiated a ready check!", initiator.c_str());
+        }
+        ImGui::Spacing();
+
+        if (ImGui::Button("Ready", ImVec2(155, 30))) {
+            gameHandler.respondToReadyCheck(true);
+            gameHandler.dismissReadyCheck();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Not Ready", ImVec2(155, 30))) {
+            gameHandler.respondToReadyCheck(false);
+            gameHandler.dismissReadyCheck();
         }
     }
     ImGui::End();

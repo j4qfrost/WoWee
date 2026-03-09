@@ -394,6 +394,9 @@ public:
     // Ready check
     void initiateReadyCheck();
     void respondToReadyCheck(bool ready);
+    bool hasPendingReadyCheck() const { return pendingReadyCheck_; }
+    void dismissReadyCheck() { pendingReadyCheck_ = false; }
+    const std::string& getReadyCheckInitiator() const { return readyCheckInitiator_; }
 
     // Duel
     void forfeitDuel();
@@ -898,6 +901,7 @@ public:
         int32_t standing = 0;
     };
     const std::vector<FactionStandingInit>& getInitialFactions() const { return initialFactions_; }
+    const std::unordered_map<uint32_t, int32_t>& getFactionStandings() const { return factionStandings_; }
     uint32_t getLastContactListMask() const { return lastContactListMask_; }
     uint32_t getLastContactListCount() const { return lastContactListCount_; }
     bool isServerMovementAllowed() const { return serverMovementAllowed_; }
@@ -1699,6 +1703,18 @@ private:
     uint32_t lfgProposalId_   = 0;   // pending proposal id (0 = none)
     int32_t  lfgAvgWaitSec_   = -1;  // estimated wait, -1=unknown
     uint32_t lfgTimeInQueueMs_= 0;   // ms already in queue
+
+    // Ready check state
+    bool        pendingReadyCheck_     = false;
+    std::string readyCheckInitiator_;
+
+    // Faction standings (factionId → absolute standing value)
+    std::unordered_map<uint32_t, int32_t> factionStandings_;
+    // Faction name cache (factionId → name), populated lazily from Faction.dbc
+    std::unordered_map<uint32_t, std::string> factionNameCache_;
+    bool factionNameCacheLoaded_ = false;
+    void loadFactionNameCache();
+    std::string getFactionName(uint32_t factionId) const;
 
     // ---- Phase 4: Group ----
     GroupListData partyData;
