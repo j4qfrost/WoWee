@@ -846,7 +846,8 @@ WOWEE_FSR3_WRAPPER_EXPORT int32_t wowee_fsr3_wrapper_dispatch_upscale(WoweeFsr3W
         if ((dispatchDesc->externalFlags & requiredMask) != requiredMask ||
             dispatchDesc->colorMemoryHandle == 0 || dispatchDesc->depthMemoryHandle == 0 ||
             dispatchDesc->motionVectorMemoryHandle == 0 || dispatchDesc->outputMemoryHandle == 0 ||
-            dispatchDesc->acquireSemaphoreHandle == 0 || dispatchDesc->releaseSemaphoreHandle == 0) {
+            dispatchDesc->acquireSemaphoreHandle == 0 || dispatchDesc->releaseSemaphoreHandle == 0 ||
+            dispatchDesc->acquireSemaphoreValue == 0 || dispatchDesc->releaseSemaphoreValue == 0) {
             setContextError(ctx, "dx12_bridge dispatch missing required external handles for upscale");
             return -1;
         }
@@ -959,6 +960,11 @@ WOWEE_FSR3_WRAPPER_EXPORT int32_t wowee_fsr3_wrapper_dispatch_upscale(WoweeFsr3W
             setContextError(ctx, "dx12_bridge failed to close command list after upscale dispatch");
             return -1;
         }
+        if (acquireFence && ctx->dx12Queue->Wait(acquireFence, dispatchDesc->acquireSemaphoreValue) != S_OK) {
+            cleanupDx12Imports();
+            setContextError(ctx, "dx12_bridge failed to wait on shared acquire fence before upscale dispatch");
+            return -1;
+        }
         ID3D12CommandList* lists[] = {ctx->dx12CommandList};
         ctx->dx12Queue->ExecuteCommandLists(1, lists);
         const uint64_t waitValue = ctx->dx12FenceValue++;
@@ -971,7 +977,7 @@ WOWEE_FSR3_WRAPPER_EXPORT int32_t wowee_fsr3_wrapper_dispatch_upscale(WoweeFsr3W
             ctx->dx12Fence->SetEventOnCompletion(waitValue, ctx->dx12FenceEvent);
             WaitForSingleObject(ctx->dx12FenceEvent, INFINITE);
         }
-        if (releaseFence && ctx->dx12Queue->Signal(releaseFence, waitValue) != S_OK) {
+        if (releaseFence && ctx->dx12Queue->Signal(releaseFence, dispatchDesc->releaseSemaphoreValue) != S_OK) {
             cleanupDx12Imports();
             setContextError(ctx, "dx12_bridge failed to signal shared release fence after upscale dispatch");
             return -1;
@@ -1015,7 +1021,8 @@ WOWEE_FSR3_WRAPPER_EXPORT int32_t wowee_fsr3_wrapper_dispatch_framegen(WoweeFsr3
             WOWEE_FSR3_WRAPPER_EXTERNAL_RELEASE_SEMAPHORE;
         if ((dispatchDesc->externalFlags & requiredMask) != requiredMask ||
             dispatchDesc->outputMemoryHandle == 0 || dispatchDesc->frameGenOutputMemoryHandle == 0 ||
-            dispatchDesc->acquireSemaphoreHandle == 0 || dispatchDesc->releaseSemaphoreHandle == 0) {
+            dispatchDesc->acquireSemaphoreHandle == 0 || dispatchDesc->releaseSemaphoreHandle == 0 ||
+            dispatchDesc->acquireSemaphoreValue == 0 || dispatchDesc->releaseSemaphoreValue == 0) {
             setContextError(ctx, "dx12_bridge dispatch missing required external handles for frame generation");
             return -1;
         }
@@ -1097,6 +1104,11 @@ WOWEE_FSR3_WRAPPER_EXPORT int32_t wowee_fsr3_wrapper_dispatch_framegen(WoweeFsr3
             setContextError(ctx, "dx12_bridge failed to close command list after frame generation dispatch");
             return -1;
         }
+        if (acquireFence && ctx->dx12Queue->Wait(acquireFence, dispatchDesc->acquireSemaphoreValue) != S_OK) {
+            cleanupDx12Imports();
+            setContextError(ctx, "dx12_bridge failed to wait on shared acquire fence before frame generation dispatch");
+            return -1;
+        }
         ID3D12CommandList* lists[] = {ctx->dx12CommandList};
         ctx->dx12Queue->ExecuteCommandLists(1, lists);
         const uint64_t waitValue = ctx->dx12FenceValue++;
@@ -1109,7 +1121,7 @@ WOWEE_FSR3_WRAPPER_EXPORT int32_t wowee_fsr3_wrapper_dispatch_framegen(WoweeFsr3
             ctx->dx12Fence->SetEventOnCompletion(waitValue, ctx->dx12FenceEvent);
             WaitForSingleObject(ctx->dx12FenceEvent, INFINITE);
         }
-        if (releaseFence && ctx->dx12Queue->Signal(releaseFence, waitValue) != S_OK) {
+        if (releaseFence && ctx->dx12Queue->Signal(releaseFence, dispatchDesc->releaseSemaphoreValue) != S_OK) {
             cleanupDx12Imports();
             setContextError(ctx, "dx12_bridge failed to signal shared release fence after frame generation dispatch");
             return -1;

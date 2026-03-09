@@ -52,6 +52,8 @@ struct AmdFsr3RuntimeDispatchDesc {
     uint64_t frameGenOutputMemoryHandle = 0;
     uint64_t acquireSemaphoreHandle = 0;
     uint64_t releaseSemaphoreHandle = 0;
+    uint64_t acquireSemaphoreValue = 0;
+    uint64_t releaseSemaphoreValue = 0;
 };
 
 class AmdFsr3Runtime {

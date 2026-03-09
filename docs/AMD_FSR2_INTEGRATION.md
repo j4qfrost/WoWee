@@ -67,7 +67,7 @@ Runtime note:
   - required device extensions: `VK_KHR_external_memory`, `VK_KHR_external_memory_win32`, `VK_KHR_external_semaphore`, `VK_KHR_external_semaphore_win32`
 - Path B wrapper ABI contract is declared in:
   - `include/rendering/amd_fsr3_wrapper_abi.h`
-- Current wrapper ABI version: `2` (adds external memory and semaphore handle fields in dispatch payload for bridge interop).
+- Current wrapper ABI version: `3` (dispatch payload carries external memory/semaphore handles and acquire/release fence values for bridge synchronization).
 - Required wrapper exports:
   - `wowee_fsr3_wrapper_get_abi_version`
   - `wowee_fsr3_wrapper_initialize`

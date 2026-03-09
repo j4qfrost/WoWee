@@ -4606,6 +4606,8 @@ void Renderer::dispatchAmdFsr3Framegen() {
         fgDispatch.externalFlags |= WOWEE_FSR3_WRAPPER_EXTERNAL_RELEASE_SEMAPHORE;
         trackHandle(fgDispatch.releaseSemaphoreHandle);
     }
+    fgDispatch.acquireSemaphoreValue = 1;
+    fgDispatch.releaseSemaphoreValue = 1;
 #endif
 
     if (!fsr2_.amdFsr3Runtime->dispatchUpscale(fgDispatch)) {

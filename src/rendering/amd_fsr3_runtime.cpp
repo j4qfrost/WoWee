@@ -472,6 +472,8 @@ bool AmdFsr3Runtime::dispatchUpscale(const AmdFsr3RuntimeDispatchDesc& desc) {
         wrapperDesc.frameGenOutputMemoryHandle = desc.frameGenOutputMemoryHandle;
         wrapperDesc.acquireSemaphoreHandle = desc.acquireSemaphoreHandle;
         wrapperDesc.releaseSemaphoreHandle = desc.releaseSemaphoreHandle;
+        wrapperDesc.acquireSemaphoreValue = desc.acquireSemaphoreValue;
+        wrapperDesc.releaseSemaphoreValue = desc.releaseSemaphoreValue;
         const bool ok = fns_->wrapperDispatchUpscale(static_cast<WoweeFsr3WrapperContext>(wrapperContext_), &wrapperDesc) == 0;
         if (!ok) {
             if (fns_->wrapperGetLastError) {
@@ -593,6 +595,8 @@ bool AmdFsr3Runtime::dispatchFrameGeneration(const AmdFsr3RuntimeDispatchDesc& d
         wrapperDesc.frameGenOutputMemoryHandle = desc.frameGenOutputMemoryHandle;
         wrapperDesc.acquireSemaphoreHandle = desc.acquireSemaphoreHandle;
         wrapperDesc.releaseSemaphoreHandle = desc.releaseSemaphoreHandle;
+        wrapperDesc.acquireSemaphoreValue = desc.acquireSemaphoreValue;
+        wrapperDesc.releaseSemaphoreValue = desc.releaseSemaphoreValue;
         const bool ok = fns_->wrapperDispatchFramegen(static_cast<WoweeFsr3WrapperContext>(wrapperContext_), &wrapperDesc) == 0;
         if (!ok) {
             if (fns_->wrapperGetLastError) {

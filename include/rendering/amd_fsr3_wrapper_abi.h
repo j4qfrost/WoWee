@@ -7,7 +7,7 @@
 extern "C" {
 #endif
 
-#define WOWEE_FSR3_WRAPPER_ABI_VERSION 2u
+#define WOWEE_FSR3_WRAPPER_ABI_VERSION 3u
 
 typedef void* WoweeFsr3WrapperContext;
 
@@ -58,6 +58,8 @@ typedef struct WoweeFsr3WrapperDispatchDesc {
     uint64_t frameGenOutputMemoryHandle;
     uint64_t acquireSemaphoreHandle;
     uint64_t releaseSemaphoreHandle;
+    uint64_t acquireSemaphoreValue;
+    uint64_t releaseSemaphoreValue;
 } WoweeFsr3WrapperDispatchDesc;
 
 enum {
