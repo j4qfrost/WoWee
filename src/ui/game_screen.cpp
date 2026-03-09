@@ -422,6 +422,7 @@ void GameScreen::render(game::GameHandler& gameHandler) {
     renderGuildBankWindow(gameHandler);
     renderAuctionHouseWindow(gameHandler);
     renderDungeonFinderWindow(gameHandler);
+    renderInstanceLockouts(gameHandler);
     // renderQuestMarkers(gameHandler);  // Disabled - using 3D billboard markers now
     renderMinimapMarkers(gameHandler);
     renderDeathScreen(gameHandler);
@@ -2015,7 +2016,7 @@ void GameScreen::renderTargetFrame(game::GameHandler& gameHandler) {
 void GameScreen::sendChatMessage(game::GameHandler& gameHandler) {
     if (strlen(chatInputBuffer) > 0) {
         std::string input(chatInputBuffer);
-        game::ChatType type;
+        game::ChatType type = game::ChatType::SAY;
         std::string message = input;
         std::string target;
 
@@ -6320,6 +6321,10 @@ void GameScreen::renderEscapeMenu() {
             settingsInit = false;
             showEscapeMenu = false;
         }
+        if (ImGui::Button("Instance Lockouts", ImVec2(-1, 0))) {
+            showInstanceLockouts_ = true;
+            showEscapeMenu = false;
+        }
 
         ImGui::Spacing();
         ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(10.0f, 10.0f));
@@ -9533,6 +9538,122 @@ void GameScreen::renderDungeonFinderWindow(game::GameHandler& gameHandler) {
     if (state == LfgState::Queued || state == LfgState::RoleCheck) {
         if (ImGui::Button("Leave Queue", ImVec2(-1, 0))) {
             gameHandler.lfgLeave();
+        }
+    }
+
+    ImGui::End();
+}
+
+// ============================================================
+// Instance Lockouts
+// ============================================================
+
+void GameScreen::renderInstanceLockouts(game::GameHandler& gameHandler) {
+    if (!showInstanceLockouts_) return;
+
+    ImGui::SetNextWindowSize(ImVec2(480, 0), ImGuiCond_Appearing);
+    ImGui::SetNextWindowPos(
+        ImVec2(ImGui::GetIO().DisplaySize.x / 2 - 240, 140), ImGuiCond_Appearing);
+
+    if (!ImGui::Begin("Instance Lockouts", &showInstanceLockouts_,
+                      ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::End();
+        return;
+    }
+
+    const auto& lockouts = gameHandler.getInstanceLockouts();
+
+    if (lockouts.empty()) {
+        ImGui::TextColored(ImVec4(0.6f, 0.6f, 0.6f, 1.0f), "No active instance lockouts.");
+    } else {
+        // Build map name lookup from Map.dbc (cached after first call)
+        static std::unordered_map<uint32_t, std::string> sMapNames;
+        static bool sMapNamesLoaded = false;
+        if (!sMapNamesLoaded) {
+            sMapNamesLoaded = true;
+            if (auto* am = core::Application::getInstance().getAssetManager()) {
+                if (auto dbc = am->loadDBC("Map.dbc"); dbc && dbc->isLoaded()) {
+                    for (uint32_t i = 0; i < dbc->getRecordCount(); ++i) {
+                        uint32_t id = dbc->getUInt32(i, 0);
+                        // Field 2 = MapName_enUS (first localized), field 1 = InternalName
+                        std::string name = dbc->getString(i, 2);
+                        if (name.empty()) name = dbc->getString(i, 1);
+                        if (!name.empty()) sMapNames[id] = std::move(name);
+                    }
+                }
+            }
+        }
+
+        auto difficultyLabel = [](uint32_t diff) -> const char* {
+            switch (diff) {
+                case 0: return "Normal";
+                case 1: return "Heroic";
+                case 2: return "25-Man";
+                case 3: return "25-Man Heroic";
+                default: return "Unknown";
+            }
+        };
+
+        // Current UTC time for reset countdown
+        auto nowSec = static_cast<uint64_t>(std::time(nullptr));
+
+        if (ImGui::BeginTable("lockouts", 4,
+                              ImGuiTableFlags_SizingStretchProp |
+                              ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersOuter)) {
+            ImGui::TableSetupColumn("Instance",   ImGuiTableColumnFlags_WidthStretch);
+            ImGui::TableSetupColumn("Difficulty", ImGuiTableColumnFlags_WidthFixed, 110.0f);
+            ImGui::TableSetupColumn("Resets In",  ImGuiTableColumnFlags_WidthFixed, 100.0f);
+            ImGui::TableSetupColumn("Status",     ImGuiTableColumnFlags_WidthFixed, 60.0f);
+            ImGui::TableHeadersRow();
+
+            for (const auto& lo : lockouts) {
+                ImGui::TableNextRow();
+
+                // Instance name
+                ImGui::TableSetColumnIndex(0);
+                auto it = sMapNames.find(lo.mapId);
+                if (it != sMapNames.end()) {
+                    ImGui::TextUnformatted(it->second.c_str());
+                } else {
+                    ImGui::Text("Map %u", lo.mapId);
+                }
+
+                // Difficulty
+                ImGui::TableSetColumnIndex(1);
+                ImGui::TextUnformatted(difficultyLabel(lo.difficulty));
+
+                // Reset countdown
+                ImGui::TableSetColumnIndex(2);
+                if (lo.resetTime > nowSec) {
+                    uint64_t remaining = lo.resetTime - nowSec;
+                    uint64_t days  = remaining / 86400;
+                    uint64_t hours = (remaining % 86400) / 3600;
+                    if (days > 0) {
+                        ImGui::Text("%llud %lluh",
+                            static_cast<unsigned long long>(days),
+                            static_cast<unsigned long long>(hours));
+                    } else {
+                        uint64_t mins = (remaining % 3600) / 60;
+                        ImGui::Text("%lluh %llum",
+                            static_cast<unsigned long long>(hours),
+                            static_cast<unsigned long long>(mins));
+                    }
+                } else {
+                    ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "Expired");
+                }
+
+                // Locked / Extended status
+                ImGui::TableSetColumnIndex(3);
+                if (lo.extended) {
+                    ImGui::TextColored(ImVec4(0.3f, 0.7f, 1.0f, 1.0f), "Ext");
+                } else if (lo.locked) {
+                    ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "Locked");
+                } else {
+                    ImGui::TextColored(ImVec4(0.5f, 0.9f, 0.5f, 1.0f), "Open");
+                }
+            }
+
+            ImGui::EndTable();
         }
     }
 

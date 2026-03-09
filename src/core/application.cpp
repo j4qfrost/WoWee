@@ -4841,11 +4841,9 @@ void Application::spawnOnlineCreature(uint64_t guid, uint32_t displayId, float x
 
     // Check model cache - reuse if same displayId was already loaded
     uint32_t modelId = 0;
-    bool modelCached = false;
     auto cacheIt = displayIdModelCache_.find(displayId);
     if (cacheIt != displayIdModelCache_.end()) {
         modelId = cacheIt->second;
-        modelCached = true;
     } else {
         // Load model from disk (only once per displayId)
         modelId = nextCreatureModelId_++;

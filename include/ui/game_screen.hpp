@@ -237,6 +237,7 @@ private:
     void renderGuildBankWindow(game::GameHandler& gameHandler);
     void renderAuctionHouseWindow(game::GameHandler& gameHandler);
     void renderDungeonFinderWindow(game::GameHandler& gameHandler);
+    void renderInstanceLockouts(game::GameHandler& gameHandler);
 
     /**
      * Inventory screen
@@ -268,6 +269,9 @@ private:
     VkDescriptorSet emptyBagSlotTexture_ = VK_NULL_HANDLE;
     int bagBarPickedSlot_ = -1;   // Visual drag in progress (-1 = none)
     int bagBarDragSource_ = -1;   // Mouse pressed on this slot, waiting for drag or click (-1 = none)
+
+    // Instance Lockouts window
+    bool  showInstanceLockouts_ = false;
 
     // Dungeon Finder state
     bool  showDungeonFinder_ = false;

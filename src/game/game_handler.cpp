@@ -11525,7 +11525,6 @@ void GameHandler::handleMonsterMoveTransport(network::Packet& packet) {
 
     if (hasDest && duration > 0) {
         glm::vec3 destLocalCanonical = core::coords::serverToCanonical(glm::vec3(destLocalX, destLocalY, destLocalZ));
-        glm::vec3 startWorld = transportManager_->getPlayerWorldPosition(transportGuid, startLocalCanonical);
         glm::vec3 destWorld  = transportManager_->getPlayerWorldPosition(transportGuid, destLocalCanonical);
 
         // Face toward destination unless an explicit facing was given
