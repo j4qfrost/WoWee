@@ -321,7 +321,8 @@ void GameScreen::render(game::GameHandler& gameHandler) {
     if (!fsrSettingsApplied_) {
         auto* renderer = core::Application::getInstance().getRenderer();
         if (renderer) {
-            static const float fsrScales[] = { 0.77f, 0.67f, 0.59f, 0.50f };
+            static const float fsrScales[] = { 0.77f, 0.67f, 0.59f, 1.00f };
+            pendingFSRQuality = std::clamp(pendingFSRQuality, 0, 3);
             renderer->setFSRQuality(fsrScales[pendingFSRQuality]);
             renderer->setFSRSharpness(pendingFSRSharpness);
             renderer->setFSR2DebugTuning(pendingFSR2JitterSign, pendingFSR2MotionVecScaleX, pendingFSR2MotionVecScaleY);
@@ -6336,8 +6337,9 @@ void GameScreen::renderSettingsWindow() {
                             ImGui::TextDisabled("FSR2 backend: %s",
                                 renderer->isAmdFsr2SdkAvailable() ? "AMD FidelityFX SDK" : "Internal fallback");
                         }
-                        const char* fsrQualityLabels[] = { "Ultra Quality (77%)", "Quality (67%)", "Balanced (59%)", "Performance (50%)" };
-                        static const float fsrScaleFactors[] = { 0.77f, 0.67f, 0.59f, 0.50f };
+                        const char* fsrQualityLabels[] = { "Ultra Quality (77%)", "Quality (67%)", "Balanced (59%)", "Native (100%)" };
+                        static const float fsrScaleFactors[] = { 0.77f, 0.67f, 0.59f, 1.00f };
+                        pendingFSRQuality = std::clamp(pendingFSRQuality, 0, 3);
                         if (ImGui::Combo("FSR Quality", &pendingFSRQuality, fsrQualityLabels, 4)) {
                             if (renderer) renderer->setFSRQuality(fsrScaleFactors[pendingFSRQuality]);
                             saveSettings();

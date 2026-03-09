@@ -118,7 +118,7 @@ private:
     int pendingPOMQuality = 1;          // 0=Low(16), 1=Medium(32), 2=High(64)
     bool pendingFSR = false;
     int pendingUpscalingMode = 0;       // 0=Off, 1=FSR1, 2=FSR2
-    int pendingFSRQuality = 0;          // 0=UltraQuality, 1=Quality, 2=Balanced, 3=Performance
+    int pendingFSRQuality = 0;          // 0=UltraQuality, 1=Quality, 2=Balanced, 3=Native(100%)
     float pendingFSRSharpness = 0.5f;
     float pendingFSR2JitterSign = 0.40f;
     float pendingFSR2MotionVecScaleX = 1.0f;
