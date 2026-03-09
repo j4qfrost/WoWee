@@ -4407,6 +4407,11 @@ void GameScreen::renderDuelRequestPopup(game::GameHandler& gameHandler) {
 void GameScreen::renderSummonRequestPopup(game::GameHandler& gameHandler) {
     if (!gameHandler.hasPendingSummonRequest()) return;
 
+    // Tick the timeout down
+    float dt = ImGui::GetIO().DeltaTime;
+    gameHandler.tickSummonTimeout(dt);
+    if (!gameHandler.hasPendingSummonRequest()) return;  // expired
+
     auto* window = core::Application::getInstance().getWindow();
     float screenW = window ? static_cast<float>(window->getWidth()) : 1280.0f;
 

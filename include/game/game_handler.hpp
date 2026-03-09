@@ -713,6 +713,14 @@ public:
     float getSummonTimeoutSec() const { return summonTimeoutSec_; }
     void acceptSummon();
     void declineSummon();
+    void tickSummonTimeout(float dt) {
+        if (!pendingSummonRequest_) return;
+        summonTimeoutSec_ -= dt;
+        if (summonTimeoutSec_ <= 0.0f) {
+            pendingSummonRequest_ = false;
+            summonTimeoutSec_ = 0.0f;
+        }
+    }
 
     // ---- Trade ----
     enum class TradeStatus : uint8_t {
