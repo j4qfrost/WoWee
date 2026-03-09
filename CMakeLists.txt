@@ -506,7 +506,6 @@ set(WOWEE_SOURCES
     src/rendering/renderer.cpp
     src/rendering/amd_fsr3_runtime.cpp
     src/rendering/shader.cpp
-    src/rendering/texture.cpp
     src/rendering/mesh.cpp
     src/rendering/camera.cpp
     src/rendering/camera_controller.cpp
@@ -620,7 +619,6 @@ set(WOWEE_HEADERS
     include/rendering/vk_render_target.hpp
     include/rendering/renderer.hpp
     include/rendering/shader.hpp
-    include/rendering/texture.hpp
     include/rendering/mesh.hpp
     include/rendering/camera.hpp
     include/rendering/camera_controller.hpp
