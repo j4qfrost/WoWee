@@ -200,7 +200,14 @@ make -j$(nproc)
   - Runtime library auto-probe checks for `libffx_fsr3_vk`/`ffx_fsr3_vk` in default loader paths.
   - Override runtime library path with:
     - `WOWEE_FFX_SDK_RUNTIME_LIB=/absolute/path/to/libffx_fsr3_vk.so` (platform extension varies).
-  - Current state is still dispatch-staged until full FI/OF dispatch activation is linked.
+  - Wrapper override path:
+    - `WOWEE_FFX_SDK_RUNTIME_WRAPPER_LIB=/absolute/path/to/libffx_fsr3_vk_wrapper.so` (platform extension varies).
+  - Path B wrapper libraries must export the clean wrapper ABI (`include/rendering/amd_fsr3_wrapper_abi.h`):
+    - `wowee_fsr3_wrapper_get_abi_version`
+    - `wowee_fsr3_wrapper_initialize`
+    - `wowee_fsr3_wrapper_dispatch_upscale`
+    - `wowee_fsr3_wrapper_shutdown`
+    - Optional FG hook: `wowee_fsr3_wrapper_dispatch_framegen`
 
 ### Current FSR Defaults
 

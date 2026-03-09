@@ -1,5 +1,7 @@
 #include "rendering/amd_fsr3_runtime.hpp"
 
+#include "rendering/amd_fsr3_wrapper_abi.h"
+
 #include <algorithm>
 #include <cstdlib>
 #include <cstring>
@@ -23,6 +25,13 @@ namespace wowee::rendering {
 
 #if WOWEE_HAS_AMD_FSR3_FRAMEGEN
 struct AmdFsr3Runtime::RuntimeFns {
+    uint32_t (*wrapperGetAbiVersion)() = nullptr;
+    const char* (*wrapperGetName)() = nullptr;
+    int32_t (*wrapperInitialize)(const WoweeFsr3WrapperInitDesc*, WoweeFsr3WrapperContext*, char*, uint32_t) = nullptr;
+    int32_t (*wrapperDispatchUpscale)(WoweeFsr3WrapperContext, const WoweeFsr3WrapperDispatchDesc*) = nullptr;
+    int32_t (*wrapperDispatchFramegen)(WoweeFsr3WrapperContext, const WoweeFsr3WrapperDispatchDesc*) = nullptr;
+    void (*wrapperShutdown)(WoweeFsr3WrapperContext) = nullptr;
+
     decltype(&ffxGetScratchMemorySizeVK) getScratchMemorySizeVK = nullptr;
     decltype(&ffxGetDeviceVK) getDeviceVK = nullptr;
     decltype(&ffxGetInterfaceVK) getInterfaceVK = nullptr;
@@ -147,6 +156,7 @@ bool AmdFsr3Runtime::initialize(const AmdFsr3RuntimeInitDesc& desc) {
     shutdown();
     lastError_.clear();
     loadPathKind_ = LoadPathKind::None;
+    backend_ = RuntimeBackend::None;
 
 #if !WOWEE_HAS_AMD_FSR3_FRAMEGEN
     (void)desc;
@@ -220,6 +230,75 @@ bool AmdFsr3Runtime::initialize(const AmdFsr3RuntimeInitDesc& desc) {
     };
 
     fns_ = new RuntimeFns{};
+    if (loadPathKind_ == LoadPathKind::Wrapper) {
+        fns_->wrapperGetAbiVersion = reinterpret_cast<decltype(fns_->wrapperGetAbiVersion)>(resolveSym("wowee_fsr3_wrapper_get_abi_version"));
+        fns_->wrapperGetName = reinterpret_cast<decltype(fns_->wrapperGetName)>(resolveSym("wowee_fsr3_wrapper_get_name"));
+        fns_->wrapperInitialize = reinterpret_cast<decltype(fns_->wrapperInitialize)>(resolveSym("wowee_fsr3_wrapper_initialize"));
+        fns_->wrapperDispatchUpscale = reinterpret_cast<decltype(fns_->wrapperDispatchUpscale)>(resolveSym("wowee_fsr3_wrapper_dispatch_upscale"));
+        fns_->wrapperDispatchFramegen = reinterpret_cast<decltype(fns_->wrapperDispatchFramegen)>(resolveSym("wowee_fsr3_wrapper_dispatch_framegen"));
+        fns_->wrapperShutdown = reinterpret_cast<decltype(fns_->wrapperShutdown)>(resolveSym("wowee_fsr3_wrapper_shutdown"));
+
+        if (!fns_->wrapperGetAbiVersion || !fns_->wrapperInitialize ||
+            !fns_->wrapperDispatchUpscale || !fns_->wrapperShutdown) {
+            LOG_WARNING("FSR3 runtime: required wrapper ABI symbols not found in ", loadedLibraryPath_);
+            lastError_ = "missing required wowee_fsr3_wrapper_* symbols";
+            shutdown();
+            return false;
+        }
+
+        const uint32_t abiVersion = fns_->wrapperGetAbiVersion();
+        if (abiVersion != WOWEE_FSR3_WRAPPER_ABI_VERSION) {
+            LOG_WARNING("FSR3 runtime: wrapper ABI mismatch. expected=", WOWEE_FSR3_WRAPPER_ABI_VERSION,
+                        " got=", abiVersion);
+            lastError_ = "wrapper ABI version mismatch";
+            shutdown();
+            return false;
+        }
+        if (desc.enableFrameGeneration && !fns_->wrapperDispatchFramegen) {
+            LOG_WARNING("FSR3 runtime: wrapper runtime missing framegen dispatch symbol.");
+            lastError_ = "wrapper missing frame generation entry points";
+            shutdown();
+            return false;
+        }
+
+        WoweeFsr3WrapperInitDesc wrapperInit{};
+        wrapperInit.structSize = sizeof(wrapperInit);
+        wrapperInit.abiVersion = WOWEE_FSR3_WRAPPER_ABI_VERSION;
+        wrapperInit.physicalDevice = desc.physicalDevice;
+        wrapperInit.device = desc.device;
+        wrapperInit.getDeviceProcAddr = desc.getDeviceProcAddr;
+        wrapperInit.maxRenderWidth = desc.maxRenderWidth;
+        wrapperInit.maxRenderHeight = desc.maxRenderHeight;
+        wrapperInit.displayWidth = desc.displayWidth;
+        wrapperInit.displayHeight = desc.displayHeight;
+        wrapperInit.colorFormat = desc.colorFormat;
+        wrapperInit.enableFlags = 0;
+        if (desc.hdrInput) wrapperInit.enableFlags |= WOWEE_FSR3_WRAPPER_ENABLE_HDR_INPUT;
+        if (desc.depthInverted) wrapperInit.enableFlags |= WOWEE_FSR3_WRAPPER_ENABLE_DEPTH_INVERTED;
+        if (desc.enableFrameGeneration) wrapperInit.enableFlags |= WOWEE_FSR3_WRAPPER_ENABLE_FRAME_GENERATION;
+
+        char errorText[256] = {};
+        WoweeFsr3WrapperContext wrapperCtx = nullptr;
+        if (fns_->wrapperInitialize(&wrapperInit, &wrapperCtx, errorText, static_cast<uint32_t>(sizeof(errorText))) != 0 || !wrapperCtx) {
+            LOG_WARNING("FSR3 runtime: wrapper initialization failed: ", errorText[0] ? errorText : "unknown error");
+            lastError_ = errorText[0] ? errorText : "wrapper initialization failed";
+            shutdown();
+            return false;
+        }
+
+        wrapperContext_ = wrapperCtx;
+        frameGenerationReady_ = desc.enableFrameGeneration;
+        ready_ = true;
+        backend_ = RuntimeBackend::Wrapper;
+        if (fns_->wrapperGetName) {
+            const char* wrapperName = fns_->wrapperGetName();
+            if (wrapperName && *wrapperName) {
+                LOG_INFO("FSR3 runtime: wrapper active: ", wrapperName);
+            }
+        }
+        return true;
+    }
+
     fns_->getScratchMemorySizeVK = reinterpret_cast<decltype(fns_->getScratchMemorySizeVK)>(resolveSym("ffxGetScratchMemorySizeVK"));
     fns_->getDeviceVK = reinterpret_cast<decltype(fns_->getDeviceVK)>(resolveSym("ffxGetDeviceVK"));
     fns_->getInterfaceVK = reinterpret_cast<decltype(fns_->getInterfaceVK)>(resolveSym("ffxGetInterfaceVK"));
@@ -333,6 +412,7 @@ bool AmdFsr3Runtime::initialize(const AmdFsr3RuntimeInitDesc& desc) {
     }
 
     ready_ = true;
+    backend_ = RuntimeBackend::Official;
     return true;
 #endif
 }
@@ -342,8 +422,39 @@ bool AmdFsr3Runtime::dispatchUpscale(const AmdFsr3RuntimeDispatchDesc& desc) {
     (void)desc;
     return false;
 #else
-    if (!ready_ || !contextStorage_ || !fns_ || !fns_->fsr3ContextDispatchUpscale) return false;
+    if (!ready_ || !fns_) return false;
     if (!desc.commandBuffer || !desc.colorImage || !desc.depthImage || !desc.motionVectorImage || !desc.outputImage) return false;
+    if (backend_ == RuntimeBackend::Wrapper) {
+        if (!wrapperContext_ || !fns_->wrapperDispatchUpscale) return false;
+        WoweeFsr3WrapperDispatchDesc wrapperDesc{};
+        wrapperDesc.structSize = sizeof(wrapperDesc);
+        wrapperDesc.commandBuffer = desc.commandBuffer;
+        wrapperDesc.colorImage = desc.colorImage;
+        wrapperDesc.depthImage = desc.depthImage;
+        wrapperDesc.motionVectorImage = desc.motionVectorImage;
+        wrapperDesc.outputImage = desc.outputImage;
+        wrapperDesc.frameGenOutputImage = desc.frameGenOutputImage;
+        wrapperDesc.renderWidth = desc.renderWidth;
+        wrapperDesc.renderHeight = desc.renderHeight;
+        wrapperDesc.outputWidth = desc.outputWidth;
+        wrapperDesc.outputHeight = desc.outputHeight;
+        wrapperDesc.colorFormat = desc.colorFormat;
+        wrapperDesc.depthFormat = desc.depthFormat;
+        wrapperDesc.motionVectorFormat = desc.motionVectorFormat;
+        wrapperDesc.outputFormat = desc.outputFormat;
+        wrapperDesc.jitterX = desc.jitterX;
+        wrapperDesc.jitterY = desc.jitterY;
+        wrapperDesc.motionScaleX = desc.motionScaleX;
+        wrapperDesc.motionScaleY = desc.motionScaleY;
+        wrapperDesc.frameTimeDeltaMs = desc.frameTimeDeltaMs;
+        wrapperDesc.cameraNear = desc.cameraNear;
+        wrapperDesc.cameraFar = desc.cameraFar;
+        wrapperDesc.cameraFovYRadians = desc.cameraFovYRadians;
+        wrapperDesc.reset = desc.reset ? 1u : 0u;
+        return fns_->wrapperDispatchUpscale(static_cast<WoweeFsr3WrapperContext>(wrapperContext_), &wrapperDesc) == 0;
+    }
+
+    if (!contextStorage_ || !fns_->fsr3ContextDispatchUpscale) return false;
 
     FfxResourceDescription colorDesc = makeResourceDescription(
         desc.colorFormat, desc.renderWidth, desc.renderHeight, FFX_RESOURCE_USAGE_READ_ONLY);
@@ -394,9 +505,40 @@ bool AmdFsr3Runtime::dispatchFrameGeneration(const AmdFsr3RuntimeDispatchDesc& d
     (void)desc;
     return false;
 #else
-    if (!ready_ || !frameGenerationReady_ || !contextStorage_ || !fns_ || !fns_->fsr3DispatchFrameGeneration) return false;
+    if (!ready_ || !frameGenerationReady_ || !fns_) return false;
     if (!desc.commandBuffer || !desc.outputImage || !desc.frameGenOutputImage ||
         desc.outputWidth == 0 || desc.outputHeight == 0 || desc.outputFormat == VK_FORMAT_UNDEFINED) return false;
+    if (backend_ == RuntimeBackend::Wrapper) {
+        if (!wrapperContext_ || !fns_->wrapperDispatchFramegen) return false;
+        WoweeFsr3WrapperDispatchDesc wrapperDesc{};
+        wrapperDesc.structSize = sizeof(wrapperDesc);
+        wrapperDesc.commandBuffer = desc.commandBuffer;
+        wrapperDesc.colorImage = desc.colorImage;
+        wrapperDesc.depthImage = desc.depthImage;
+        wrapperDesc.motionVectorImage = desc.motionVectorImage;
+        wrapperDesc.outputImage = desc.outputImage;
+        wrapperDesc.frameGenOutputImage = desc.frameGenOutputImage;
+        wrapperDesc.renderWidth = desc.renderWidth;
+        wrapperDesc.renderHeight = desc.renderHeight;
+        wrapperDesc.outputWidth = desc.outputWidth;
+        wrapperDesc.outputHeight = desc.outputHeight;
+        wrapperDesc.colorFormat = desc.colorFormat;
+        wrapperDesc.depthFormat = desc.depthFormat;
+        wrapperDesc.motionVectorFormat = desc.motionVectorFormat;
+        wrapperDesc.outputFormat = desc.outputFormat;
+        wrapperDesc.jitterX = desc.jitterX;
+        wrapperDesc.jitterY = desc.jitterY;
+        wrapperDesc.motionScaleX = desc.motionScaleX;
+        wrapperDesc.motionScaleY = desc.motionScaleY;
+        wrapperDesc.frameTimeDeltaMs = desc.frameTimeDeltaMs;
+        wrapperDesc.cameraNear = desc.cameraNear;
+        wrapperDesc.cameraFar = desc.cameraFar;
+        wrapperDesc.cameraFovYRadians = desc.cameraFovYRadians;
+        wrapperDesc.reset = desc.reset ? 1u : 0u;
+        return fns_->wrapperDispatchFramegen(static_cast<WoweeFsr3WrapperContext>(wrapperContext_), &wrapperDesc) == 0;
+    }
+
+    if (!contextStorage_ || !fns_->fsr3DispatchFrameGeneration) return false;
 
     FfxResourceDescription presentDesc = makeResourceDescription(
         desc.outputFormat, desc.outputWidth, desc.outputHeight, FFX_RESOURCE_USAGE_READ_ONLY);
@@ -424,6 +566,10 @@ bool AmdFsr3Runtime::dispatchFrameGeneration(const AmdFsr3RuntimeDispatchDesc& d
 
 void AmdFsr3Runtime::shutdown() {
 #if WOWEE_HAS_AMD_FSR3_FRAMEGEN
+    if (wrapperContext_ && fns_ && fns_->wrapperShutdown) {
+        fns_->wrapperShutdown(static_cast<WoweeFsr3WrapperContext>(wrapperContext_));
+    }
+    wrapperContext_ = nullptr;
     if (contextStorage_ && fns_ && fns_->fsr3ContextDestroy) {
         fns_->fsr3ContextDestroy(reinterpret_cast<FfxFsr3Context*>(contextStorage_));
     }
@@ -451,6 +597,7 @@ void AmdFsr3Runtime::shutdown() {
     libHandle_ = nullptr;
     loadedLibraryPath_.clear();
     loadPathKind_ = LoadPathKind::None;
+    backend_ = RuntimeBackend::None;
 }
 
 }  // namespace wowee::rendering

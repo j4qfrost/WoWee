@@ -36,10 +36,22 @@ Detection expects:
 Runtime note:
 
 - Renderer/UI now expose a persisted experimental framegen toggle.
-- Runtime loader now probes for AMD FSR3 SDK runtime binaries.
+- Runtime loader now supports:
+  - Path A: AMD SDK runtime binaries (`ffx_fsr3_vk`).
+  - Path B: wrapper runtime libraries implementing WoWee's wrapper ABI.
 - You can point to an explicit runtime binary with:
   - `WOWEE_FFX_SDK_RUNTIME_LIB=/absolute/path/to/libffx_fsr3_vk.so` (or `.dll` / `.dylib`).
-- Current runtime status is still `dispatch staged` (FI/OF dispatch activation pending).
+- You can point to an explicit wrapper binary with:
+  - `WOWEE_FFX_SDK_RUNTIME_WRAPPER_LIB=/absolute/path/to/libffx_fsr3_vk_wrapper.so` (or `.dll` / `.dylib`).
+- Path B wrapper ABI contract is declared in:
+  - `include/rendering/amd_fsr3_wrapper_abi.h`
+- Required wrapper exports:
+  - `wowee_fsr3_wrapper_get_abi_version`
+  - `wowee_fsr3_wrapper_initialize`
+  - `wowee_fsr3_wrapper_dispatch_upscale`
+  - `wowee_fsr3_wrapper_shutdown`
+- Optional wrapper export:
+  - `wowee_fsr3_wrapper_dispatch_framegen`
 
 ## Current Status
 

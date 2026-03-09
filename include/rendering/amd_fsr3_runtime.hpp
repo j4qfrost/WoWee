@@ -69,6 +69,12 @@ public:
     const std::string& lastError() const { return lastError_; }
 
 private:
+    enum class RuntimeBackend {
+        None,
+        Official,
+        Wrapper
+    };
+
     void* libHandle_ = nullptr;
     std::string loadedLibraryPath_;
     void* scratchBuffer_ = nullptr;
@@ -81,6 +87,8 @@ private:
     struct RuntimeFns;
     RuntimeFns* fns_ = nullptr;
     void* contextStorage_ = nullptr;
+    void* wrapperContext_ = nullptr;
+    RuntimeBackend backend_ = RuntimeBackend::None;
 };
 
 }  // namespace wowee::rendering
