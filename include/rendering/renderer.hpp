@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <vector>
 #include <future>
+#include <cstddef>
 #include <glm/glm.hpp>
 #include <vulkan/vulkan.h>
 #include <vk_mem_alloc.h>
@@ -293,6 +294,9 @@ public:
 #endif
     bool isAmdFsr3FramegenRuntimeActive() const { return fsr2_.amdFsr3FramegenRuntimeActive; }
     bool isAmdFsr3FramegenRuntimeReady() const { return fsr2_.amdFsr3FramegenRuntimeReady; }
+    size_t getAmdFsr3UpscaleDispatchCount() const { return fsr2_.amdFsr3UpscaleDispatchCount; }
+    size_t getAmdFsr3FramegenDispatchCount() const { return fsr2_.amdFsr3FramegenDispatchCount; }
+    size_t getAmdFsr3FallbackCount() const { return fsr2_.amdFsr3FallbackCount; }
 
     void setWaterRefractionEnabled(bool enabled);
     bool isWaterRefractionEnabled() const;
@@ -444,6 +448,9 @@ private:
         bool amdFsr3FramegenEnabled = false;
         bool amdFsr3FramegenRuntimeActive = false;
         bool amdFsr3FramegenRuntimeReady = false;
+        size_t amdFsr3UpscaleDispatchCount = 0;
+        size_t amdFsr3FramegenDispatchCount = 0;
+        size_t amdFsr3FallbackCount = 0;
         float jitterSign = 0.38f;
         float motionVecScaleX = 1.0f;
         float motionVecScaleY = 1.0f;

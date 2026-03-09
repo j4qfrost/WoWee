@@ -203,6 +203,17 @@ void PerformanceHUD::render(const Renderer* renderer, const Camera* camera) {
         if (renderer->isFSR2Enabled()) {
             ImGui::TextColored(ImVec4(0.4f, 0.9f, 1.0f, 1.0f), "FSR 2.2: ON");
             ImGui::Text("  JitterSign=%.2f", renderer->getFSR2JitterSign());
+            const bool fgEnabled = renderer->isAmdFsr3FramegenEnabled();
+            const bool fgReady = renderer->isAmdFsr3FramegenRuntimeReady();
+            const bool fgActive = renderer->isAmdFsr3FramegenRuntimeActive();
+            const char* fgStatus = "Disabled";
+            if (fgEnabled) {
+                fgStatus = fgActive ? "Active" : (fgReady ? "Ready (waiting/fallback)" : "Unavailable");
+            }
+            ImGui::Text("  FSR3 FG: %s", fgStatus);
+            ImGui::Text("  FG Dispatches: %zu", renderer->getAmdFsr3FramegenDispatchCount());
+            ImGui::Text("  Upscale Dispatches: %zu", renderer->getAmdFsr3UpscaleDispatchCount());
+            ImGui::Text("  FG Fallbacks: %zu", renderer->getAmdFsr3FallbackCount());
         }
 
         ImGui::Spacing();

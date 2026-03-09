@@ -3759,6 +3759,9 @@ bool Renderer::initFSR2Resources() {
     fsr2_.amdFsr3FramegenRuntimeActive = false;
     fsr2_.amdFsr3FramegenRuntimeReady = false;
     fsr2_.framegenOutputValid = false;
+    fsr2_.amdFsr3UpscaleDispatchCount = 0;
+    fsr2_.amdFsr3FramegenDispatchCount = 0;
+    fsr2_.amdFsr3FallbackCount = 0;
 #if WOWEE_HAS_AMD_FSR2
     LOG_INFO("FSR2: AMD FidelityFX SDK detected at build time.");
 #else
@@ -4479,9 +4482,11 @@ void Renderer::dispatchAmdFsr3Framegen() {
             warnedRuntimeDispatch = true;
             LOG_WARNING("FSR3 runtime upscale dispatch failed; falling back to FSR2 dispatch output.");
         }
+        fsr2_.amdFsr3FallbackCount++;
         fsr2_.amdFsr3FramegenRuntimeActive = false;
         return;
     }
+    fsr2_.amdFsr3UpscaleDispatchCount++;
 
     if (!fsr2_.amdFsr3FramegenEnabled) {
         fsr2_.amdFsr3FramegenRuntimeActive = false;
@@ -4497,9 +4502,11 @@ void Renderer::dispatchAmdFsr3Framegen() {
             warnedFgDispatch = true;
             LOG_WARNING("FSR3 runtime frame generation dispatch failed; using upscaled output only.");
         }
+        fsr2_.amdFsr3FallbackCount++;
         fsr2_.amdFsr3FramegenRuntimeActive = false;
         return;
     }
+    fsr2_.amdFsr3FramegenDispatchCount++;
     fsr2_.framegenOutputValid = true;
     fsr2_.amdFsr3FramegenRuntimeActive = true;
 #else
