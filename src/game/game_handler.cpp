@@ -16016,5 +16016,13 @@ std::string GameHandler::getFactionName(uint32_t factionId) const {
     return "faction #" + std::to_string(factionId);
 }
 
+const std::string& GameHandler::getFactionNamePublic(uint32_t factionId) const {
+    const_cast<GameHandler*>(this)->loadFactionNameCache();
+    auto it = factionNameCache_.find(factionId);
+    if (it != factionNameCache_.end()) return it->second;
+    static const std::string empty;
+    return empty;
+}
+
 } // namespace game
 } // namespace wowee

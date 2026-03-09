@@ -1090,6 +1090,11 @@ void InventoryScreen::renderCharacterScreen(game::GameHandler& gameHandler) {
             ImGui::EndTabItem();
         }
 
+        if (ImGui::BeginTabItem("Reputation")) {
+            renderReputationPanel(gameHandler);
+            ImGui::EndTabItem();
+        }
+
         if (ImGui::BeginTabItem("Skills")) {
             const auto& skills = gameHandler.getPlayerSkills();
             if (skills.empty()) {
@@ -1169,6 +1174,89 @@ void InventoryScreen::renderCharacterScreen(game::GameHandler& gameHandler) {
     if (open) {
         renderHeldItem();
     }
+}
+
+void InventoryScreen::renderReputationPanel(game::GameHandler& gameHandler) {
+    const auto& standings = gameHandler.getFactionStandings();
+    if (standings.empty()) {
+        ImGui::Spacing();
+        ImGui::TextDisabled("No reputation data received yet.");
+        ImGui::TextDisabled("Reputation updates as you kill enemies and complete quests.");
+        return;
+    }
+
+    // WoW reputation tier breakpoints (cumulative from floor -42000)
+    // Tier name, threshold for next rank, bar color
+    struct RepTier {
+        const char* name;
+        int32_t     floor;   // raw value where this tier begins
+        int32_t     ceiling; // raw value where the next tier begins
+        ImVec4      color;
+    };
+    static const RepTier tiers[] = {
+        { "Hated",       -42000, -6001, ImVec4(0.6f, 0.1f, 0.1f, 1.0f) },
+        { "Hostile",      -6000, -3001, ImVec4(0.8f, 0.2f, 0.1f, 1.0f) },
+        { "Unfriendly",   -3000,    -1, ImVec4(0.9f, 0.5f, 0.1f, 1.0f) },
+        { "Neutral",          0,  2999, ImVec4(0.8f, 0.8f, 0.2f, 1.0f) },
+        { "Friendly",      3000,  8999, ImVec4(0.2f, 0.7f, 0.2f, 1.0f) },
+        { "Honored",       9000, 20999, ImVec4(0.2f, 0.8f, 0.5f, 1.0f) },
+        { "Revered",      21000, 41999, ImVec4(0.3f, 0.6f, 1.0f, 1.0f) },
+        { "Exalted",      42000, 42000, ImVec4(1.0f, 0.84f, 0.0f, 1.0f) },
+    };
+
+    auto getTier = [&](int32_t val) -> const RepTier& {
+        for (int i = 6; i >= 0; --i) {
+            if (val >= tiers[i].floor) return tiers[i];
+        }
+        return tiers[0];
+    };
+
+    ImGui::BeginChild("##ReputationList", ImVec2(0, 0), true);
+
+    // Sort factions alphabetically by name
+    std::vector<std::pair<uint32_t, int32_t>> sortedFactions(standings.begin(), standings.end());
+    std::sort(sortedFactions.begin(), sortedFactions.end(),
+        [&](const auto& a, const auto& b) {
+            const std::string& na = gameHandler.getFactionNamePublic(a.first);
+            const std::string& nb = gameHandler.getFactionNamePublic(b.first);
+            return na < nb;
+        });
+
+    for (const auto& [factionId, standing] : sortedFactions) {
+        const RepTier& tier = getTier(standing);
+
+        const std::string& factionName = gameHandler.getFactionNamePublic(factionId);
+        const char* displayName = factionName.empty() ? "Unknown Faction" : factionName.c_str();
+
+        // Faction name + tier label on same line
+        ImGui::TextColored(tier.color, "[%s]", tier.name);
+        ImGui::SameLine(90.0f);
+        ImGui::Text("%s", displayName);
+
+        // Progress bar showing position within current tier
+        float ratio = 0.0f;
+        char overlay[64] = "";
+        if (tier.floor == 42000) {
+            // Exalted — full bar
+            ratio = 1.0f;
+            snprintf(overlay, sizeof(overlay), "Exalted");
+        } else {
+            int32_t tierRange = tier.ceiling - tier.floor + 1;
+            int32_t inTier    = standing - tier.floor;
+            ratio = static_cast<float>(inTier) / static_cast<float>(tierRange);
+            ratio = std::max(0.0f, std::min(1.0f, ratio));
+            snprintf(overlay, sizeof(overlay), "%d / %d",
+                     inTier < 0 ? 0 : inTier, tierRange);
+        }
+
+        ImGui::PushStyleColor(ImGuiCol_PlotHistogram, tier.color);
+        ImGui::SetNextItemWidth(-1.0f);
+        ImGui::ProgressBar(ratio, ImVec2(0, 12.0f), overlay);
+        ImGui::PopStyleColor();
+        ImGui::Spacing();
+    }
+
+    ImGui::EndChild();
 }
 
 void InventoryScreen::renderEquipmentPanel(game::Inventory& inventory) {

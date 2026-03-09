@@ -148,6 +148,7 @@ private:
     void renderEquipmentPanel(game::Inventory& inventory);
     void renderBackpackPanel(game::Inventory& inventory, bool collapseEmptySections = false);
     void renderStatsPanel(game::Inventory& inventory, uint32_t playerLevel, int32_t serverArmor = 0);
+    void renderReputationPanel(game::GameHandler& gameHandler);
 
     void renderItemSlot(game::Inventory& inventory, const game::ItemSlot& slot,
                         float size, const char* label,
