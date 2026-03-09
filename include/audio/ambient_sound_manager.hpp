@@ -45,6 +45,9 @@ public:
     void setZoneType(ZoneType type);
     ZoneType getCurrentZone() const { return currentZone_; }
 
+    // Convenience: derive ZoneType and CityType from a WoW zone ID
+    void setZoneId(uint32_t zoneId);
+
     // City ambience control
     enum class CityType {
         NONE,

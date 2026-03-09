@@ -554,6 +554,94 @@ void AmbientSoundManager::setZoneType(ZoneType type) {
     }
 }
 
+void AmbientSoundManager::setZoneId(uint32_t zoneId) {
+    // Map WoW zone ID to ZoneType + CityType.
+    // City zones: set CityType and clear ZoneType.
+    // Outdoor zones: set ZoneType and clear CityType.
+    CityType city = CityType::NONE;
+    ZoneType zone = ZoneType::NONE;
+
+    switch (zoneId) {
+        // ---- Major cities ----
+        case 1519: city = CityType::STORMWIND;    break;
+        case 1537: city = CityType::IRONFORGE;    break;
+        case 1657: city = CityType::DARNASSUS;    break;
+        case 1637: city = CityType::ORGRIMMAR;    break;
+        case 1497: city = CityType::UNDERCITY;    break;
+        case 1638: city = CityType::THUNDERBLUFF; break;
+
+        // ---- Forest / snowy forest ----
+        case 12:   // Elwynn Forest
+        case 141:  // Teldrassil
+        case 148:  // Darkshore
+        case 493:  // Moonglade
+        case 361:  // Felwood
+        case 331:  // Ashenvale
+        case 357:  // Feralas
+        case 15:   // Dustwallow Marsh (lush)
+        case 267:  // Hillsbrad Foothills
+        case 36:   // Alterac Mountains
+        case 45:   // Arathi Highlands
+            zone = ZoneType::FOREST_NORMAL; break;
+
+        case 1:    // Dun Morogh
+        case 196:  // Winterspring
+        case 3:    // Badlands (actually dry but close enough)
+        case 2817: // Crystalsong Forest
+        case 66:   // Storm Peaks
+        case 67:   // Icecrown
+        case 394:  // Dragonblight
+        case 65:   // Howling Fjord
+            zone = ZoneType::FOREST_SNOW; break;
+
+        // ---- Grasslands / plains ----
+        case 40:   // Westfall
+        case 215:  // Mulgore
+        case 44:   // Redridge Mountains
+        case 10:   // Duskwood (counts as grassland night)
+        case 38:   // Loch Modan
+            zone = ZoneType::GRASSLANDS; break;
+
+        // ---- Desert ----
+        case 17:   // The Barrens
+        case 14:   // Durotar
+        case 440:  // Tanaris
+        case 400:  // Thousand Needles
+            zone = ZoneType::DESERT_PLAINS; break;
+
+        case 46:   // Burning Steppes
+        case 51:   // Searing Gorge
+        case 241:  // Eastern Plaguelands (barren)
+        case 28:   // Western Plaguelands
+            zone = ZoneType::DESERT_CANYON; break;
+
+        // ---- Jungle ----
+        case 33:   // Stranglethorn Vale
+        case 78:   // Un'Goro Crater
+        case 210:  // Uldaman
+        case 1377: // Silithus (arid but closest)
+            zone = ZoneType::JUNGLE; break;
+
+        // ---- Marsh / swamp ----
+        case 8:    // Swamp of Sorrows
+        case 11:   // Wetlands
+        case 139:  // Eastern Plaguelands
+        case 763:  // Zangarmarsh
+            zone = ZoneType::MARSH; break;
+
+        // ---- Beach / coast ----
+        case 4:    // Barrens coast (Merchant Coast)
+        case 3537: // Azuremyst Isle
+        case 3524: // Bloodmyst Isle
+            zone = ZoneType::BEACH; break;
+
+        default: break;
+    }
+
+    setCityType(city);
+    setZoneType(zone);
+}
+
 void AmbientSoundManager::setCityType(CityType type) {
     if (currentCity_ != type) {
         LOG_INFO("AmbientSoundManager: City changed from ", static_cast<int>(currentCity_),

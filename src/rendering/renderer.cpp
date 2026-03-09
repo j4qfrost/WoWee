@@ -3155,6 +3155,10 @@ void Renderer::update(float deltaTime) {
                     }
                 }
             }
+            // Update ambient sound manager zone type
+            if (ambientSoundManager) {
+                ambientSoundManager->setZoneId(zoneId);
+            }
         }
 
         musicManager->update(deltaTime);
