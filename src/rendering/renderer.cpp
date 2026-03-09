@@ -3040,9 +3040,12 @@ void Renderer::update(float deltaTime) {
 
     // Update zone detection and music
     if (zoneManager && musicManager && terrainManager && camera) {
-        // First check tile-based zone
+        // Prefer server-authoritative zone ID (from SMSG_INIT_WORLD_STATES);
+        // fall back to tile-based lookup for single-player / offline mode.
+        const auto* gh = core::Application::getInstance().getGameHandler();
+        uint32_t serverZoneId = gh ? gh->getWorldStateZoneId() : 0;
         auto tile = terrainManager->getCurrentTile();
-        uint32_t zoneId = zoneManager->getZoneId(tile.x, tile.y);
+        uint32_t zoneId = (serverZoneId != 0) ? serverZoneId : zoneManager->getZoneId(tile.x, tile.y);
 
         bool insideTavern = false;
         bool insideBlacksmith = false;
