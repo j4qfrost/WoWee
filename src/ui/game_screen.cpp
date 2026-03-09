@@ -2034,6 +2034,62 @@ void GameScreen::renderTargetFrame(game::GameHandler& gameHandler) {
 
     ImGui::PopStyleColor(2);
     ImGui::PopStyleVar();
+
+    // ---- Target-of-Target (ToT) mini frame ----
+    // Read target's current target from UNIT_FIELD_TARGET_LO/HI update fields
+    if (target) {
+        const auto& fields = target->getFields();
+        uint64_t totGuid = 0;
+        auto loIt = fields.find(game::fieldIndex(game::UF::UNIT_FIELD_TARGET_LO));
+        if (loIt != fields.end()) {
+            totGuid = loIt->second;
+            auto hiIt = fields.find(game::fieldIndex(game::UF::UNIT_FIELD_TARGET_HI));
+            if (hiIt != fields.end())
+                totGuid |= (static_cast<uint64_t>(hiIt->second) << 32);
+        }
+
+        if (totGuid != 0) {
+            auto totEntity = gameHandler.getEntityManager().getEntity(totGuid);
+            if (totEntity) {
+                // Position ToT frame just below and right-aligned with the target frame
+                float totW = 160.0f;
+                float totX = (screenW - totW) / 2.0f + (frameW - totW);
+                ImGui::SetNextWindowPos(ImVec2(totX, 30.0f + 130.0f), ImGuiCond_Always);
+                ImGui::SetNextWindowSize(ImVec2(totW, 0.0f), ImGuiCond_Always);
+
+                ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 3.0f);
+                ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.08f, 0.08f, 0.08f, 0.80f));
+                ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0.4f, 0.4f, 0.4f, 0.7f));
+
+                if (ImGui::Begin("##ToTFrame", nullptr,
+                        ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove |
+                        ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoTitleBar |
+                        ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoScrollbar)) {
+                    std::string totName = getEntityName(totEntity);
+                    ImGui::TextColored(ImVec4(0.8f, 0.8f, 0.8f, 1.0f), "%s", totName.c_str());
+
+                    if (totEntity->getType() == game::ObjectType::UNIT ||
+                        totEntity->getType() == game::ObjectType::PLAYER) {
+                        auto totUnit = std::static_pointer_cast<game::Unit>(totEntity);
+                        uint32_t hp = totUnit->getHealth();
+                        uint32_t maxHp = totUnit->getMaxHealth();
+                        if (maxHp > 0) {
+                            float pct = static_cast<float>(hp) / static_cast<float>(maxHp);
+                            ImGui::PushStyleColor(ImGuiCol_PlotHistogram,
+                                pct > 0.5f ? ImVec4(0.2f, 0.7f, 0.2f, 1.0f) :
+                                pct > 0.2f ? ImVec4(0.7f, 0.7f, 0.2f, 1.0f) :
+                                             ImVec4(0.7f, 0.2f, 0.2f, 1.0f));
+                            ImGui::ProgressBar(pct, ImVec2(-1, 10), "");
+                            ImGui::PopStyleColor();
+                        }
+                    }
+                }
+                ImGui::End();
+                ImGui::PopStyleColor(2);
+                ImGui::PopStyleVar();
+            }
+        }
+    }
 }
 
 void GameScreen::sendChatMessage(game::GameHandler& gameHandler) {
