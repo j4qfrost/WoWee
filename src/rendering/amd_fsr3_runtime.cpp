@@ -421,12 +421,22 @@ bool AmdFsr3Runtime::initialize(const AmdFsr3RuntimeInitDesc& desc) {
 bool AmdFsr3Runtime::dispatchUpscale(const AmdFsr3RuntimeDispatchDesc& desc) {
 #if !WOWEE_HAS_AMD_FSR3_FRAMEGEN
     (void)desc;
+    lastError_ = "FSR3 runtime support not compiled in";
     return false;
 #else
-    if (!ready_ || !fns_) return false;
-    if (!desc.commandBuffer || !desc.colorImage || !desc.depthImage || !desc.motionVectorImage || !desc.outputImage) return false;
+    if (!ready_ || !fns_) {
+        lastError_ = "runtime not initialized";
+        return false;
+    }
+    if (!desc.commandBuffer || !desc.colorImage || !desc.depthImage || !desc.motionVectorImage || !desc.outputImage) {
+        lastError_ = "invalid upscale dispatch resources";
+        return false;
+    }
     if (backend_ == RuntimeBackend::Wrapper) {
-        if (!wrapperContext_ || !fns_->wrapperDispatchUpscale) return false;
+        if (!wrapperContext_ || !fns_->wrapperDispatchUpscale) {
+            lastError_ = "wrapper upscale entry points unavailable";
+            return false;
+        }
         WoweeFsr3WrapperDispatchDesc wrapperDesc{};
         wrapperDesc.structSize = sizeof(wrapperDesc);
         wrapperDesc.commandBuffer = desc.commandBuffer;
@@ -452,10 +462,19 @@ bool AmdFsr3Runtime::dispatchUpscale(const AmdFsr3RuntimeDispatchDesc& desc) {
         wrapperDesc.cameraFar = desc.cameraFar;
         wrapperDesc.cameraFovYRadians = desc.cameraFovYRadians;
         wrapperDesc.reset = desc.reset ? 1u : 0u;
-        return fns_->wrapperDispatchUpscale(static_cast<WoweeFsr3WrapperContext>(wrapperContext_), &wrapperDesc) == 0;
+        const bool ok = fns_->wrapperDispatchUpscale(static_cast<WoweeFsr3WrapperContext>(wrapperContext_), &wrapperDesc) == 0;
+        if (!ok) {
+            lastError_ = "wrapper upscale dispatch failed";
+        } else {
+            lastError_.clear();
+        }
+        return ok;
     }
 
-    if (!contextStorage_ || !fns_->fsr3ContextDispatchUpscale) return false;
+    if (!contextStorage_ || !fns_->fsr3ContextDispatchUpscale) {
+        lastError_ = "official runtime upscale context unavailable";
+        return false;
+    }
 
     FfxResourceDescription colorDesc = makeResourceDescription(
         desc.colorFormat, desc.renderWidth, desc.renderHeight, FFX_RESOURCE_USAGE_READ_ONLY);
@@ -497,20 +516,35 @@ bool AmdFsr3Runtime::dispatchUpscale(const AmdFsr3RuntimeDispatchDesc& desc) {
 
     FfxErrorCode err = fns_->fsr3ContextDispatchUpscale(
         reinterpret_cast<FfxFsr3Context*>(contextStorage_), &dispatch);
-    return err == FFX_OK;
+    if (err != FFX_OK) {
+        lastError_ = "ffxFsr3ContextDispatchUpscale failed";
+        return false;
+    }
+    lastError_.clear();
+    return true;
 #endif
 }
 
 bool AmdFsr3Runtime::dispatchFrameGeneration(const AmdFsr3RuntimeDispatchDesc& desc) {
 #if !WOWEE_HAS_AMD_FSR3_FRAMEGEN
     (void)desc;
+    lastError_ = "FSR3 runtime support not compiled in";
     return false;
 #else
-    if (!ready_ || !frameGenerationReady_ || !fns_) return false;
+    if (!ready_ || !frameGenerationReady_ || !fns_) {
+        lastError_ = "frame generation is not ready";
+        return false;
+    }
     if (!desc.commandBuffer || !desc.outputImage || !desc.frameGenOutputImage ||
-        desc.outputWidth == 0 || desc.outputHeight == 0 || desc.outputFormat == VK_FORMAT_UNDEFINED) return false;
+        desc.outputWidth == 0 || desc.outputHeight == 0 || desc.outputFormat == VK_FORMAT_UNDEFINED) {
+        lastError_ = "invalid frame generation dispatch resources";
+        return false;
+    }
     if (backend_ == RuntimeBackend::Wrapper) {
-        if (!wrapperContext_ || !fns_->wrapperDispatchFramegen) return false;
+        if (!wrapperContext_ || !fns_->wrapperDispatchFramegen) {
+            lastError_ = "wrapper frame generation entry points unavailable";
+            return false;
+        }
         WoweeFsr3WrapperDispatchDesc wrapperDesc{};
         wrapperDesc.structSize = sizeof(wrapperDesc);
         wrapperDesc.commandBuffer = desc.commandBuffer;
@@ -536,10 +570,19 @@ bool AmdFsr3Runtime::dispatchFrameGeneration(const AmdFsr3RuntimeDispatchDesc& d
         wrapperDesc.cameraFar = desc.cameraFar;
         wrapperDesc.cameraFovYRadians = desc.cameraFovYRadians;
         wrapperDesc.reset = desc.reset ? 1u : 0u;
-        return fns_->wrapperDispatchFramegen(static_cast<WoweeFsr3WrapperContext>(wrapperContext_), &wrapperDesc) == 0;
+        const bool ok = fns_->wrapperDispatchFramegen(static_cast<WoweeFsr3WrapperContext>(wrapperContext_), &wrapperDesc) == 0;
+        if (!ok) {
+            lastError_ = "wrapper frame generation dispatch failed";
+        } else {
+            lastError_.clear();
+        }
+        return ok;
     }
 
-    if (!contextStorage_ || !fns_->fsr3DispatchFrameGeneration) return false;
+    if (!contextStorage_ || !fns_->fsr3DispatchFrameGeneration) {
+        lastError_ = "official runtime frame generation context unavailable";
+        return false;
+    }
 
     FfxResourceDescription presentDesc = makeResourceDescription(
         desc.outputFormat, desc.outputWidth, desc.outputHeight, FFX_RESOURCE_USAGE_READ_ONLY);
@@ -561,7 +604,12 @@ bool AmdFsr3Runtime::dispatchFrameGeneration(const AmdFsr3RuntimeDispatchDesc& d
     fgDispatch.minMaxLuminance[1] = 1.0f;
 
     FfxErrorCode err = fns_->fsr3DispatchFrameGeneration(&fgDispatch);
-    return err == FFX_OK;
+    if (err != FFX_OK) {
+        lastError_ = "ffxFsr3DispatchFrameGeneration failed";
+        return false;
+    }
+    lastError_.clear();
+    return true;
 #endif
 }
 

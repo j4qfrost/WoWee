@@ -211,6 +211,10 @@ void PerformanceHUD::render(const Renderer* renderer, const Camera* camera) {
                 fgStatus = fgActive ? "Active" : (fgReady ? "Ready (waiting/fallback)" : "Unavailable");
             }
             ImGui::Text("  FSR3 FG: %s (%s)", fgStatus, renderer->getAmdFsr3FramegenRuntimePath());
+            const std::string& fgErr = renderer->getAmdFsr3FramegenRuntimeError();
+            if (!fgErr.empty()) {
+                ImGui::TextWrapped("  FG Last Error: %s", fgErr.c_str());
+            }
             ImGui::Text("  FG Dispatches: %zu", renderer->getAmdFsr3FramegenDispatchCount());
             ImGui::Text("  Upscale Dispatches: %zu", renderer->getAmdFsr3UpscaleDispatchCount());
             ImGui::Text("  FG Fallbacks: %zu", renderer->getAmdFsr3FallbackCount());

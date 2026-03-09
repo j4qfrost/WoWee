@@ -4494,10 +4494,12 @@ void Renderer::dispatchAmdFsr3Framegen() {
             warnedRuntimeDispatch = true;
             LOG_WARNING("FSR3 runtime upscale dispatch failed; falling back to FSR2 dispatch output.");
         }
+        fsr2_.amdFsr3RuntimeLastError = fsr2_.amdFsr3Runtime->lastError();
         fsr2_.amdFsr3FallbackCount++;
         fsr2_.amdFsr3FramegenRuntimeActive = false;
         return;
     }
+    fsr2_.amdFsr3RuntimeLastError.clear();
     fsr2_.amdFsr3UpscaleDispatchCount++;
 
     if (!fsr2_.amdFsr3FramegenEnabled) {
@@ -4514,10 +4516,12 @@ void Renderer::dispatchAmdFsr3Framegen() {
             warnedFgDispatch = true;
             LOG_WARNING("FSR3 runtime frame generation dispatch failed; using upscaled output only.");
         }
+        fsr2_.amdFsr3RuntimeLastError = fsr2_.amdFsr3Runtime->lastError();
         fsr2_.amdFsr3FallbackCount++;
         fsr2_.amdFsr3FramegenRuntimeActive = false;
         return;
     }
+    fsr2_.amdFsr3RuntimeLastError.clear();
     fsr2_.amdFsr3FramegenDispatchCount++;
     fsr2_.framegenOutputValid = true;
     fsr2_.amdFsr3FramegenRuntimeActive = true;
