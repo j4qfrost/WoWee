@@ -110,8 +110,34 @@ bool MPQManager::initialize(const std::string& dataPath_) {
     // Load patch archives (highest priority)
     loadPatchArchives();
 
-    // Load locale archives
-    loadLocaleArchives("enUS");  // TODO: Make configurable
+    // Load locale archives — auto-detect from available locale directories
+    {
+        // Prefer the locale override from environment, then scan for installed ones
+        const char* localeEnv = std::getenv("WOWEE_LOCALE");
+        std::string detectedLocale;
+        if (localeEnv && localeEnv[0] != '\0') {
+            detectedLocale = localeEnv;
+            LOG_INFO("Using locale from WOWEE_LOCALE env: ", detectedLocale);
+        } else {
+            // Priority order: enUS first, then other common locales
+            static const std::array<const char*, 12> knownLocales = {
+                "enUS", "enGB", "deDE", "frFR", "esES", "esMX",
+                "zhCN", "zhTW", "koKR", "ruRU", "ptBR", "itIT"
+            };
+            for (const char* loc : knownLocales) {
+                if (std::filesystem::exists(dataPath + "/" + loc)) {
+                    detectedLocale = loc;
+                    LOG_INFO("Auto-detected WoW locale: ", detectedLocale);
+                    break;
+                }
+            }
+            if (detectedLocale.empty()) {
+                detectedLocale = "enUS";
+                LOG_WARNING("No locale directory found in data path; defaulting to enUS");
+            }
+        }
+        loadLocaleArchives(detectedLocale);
+    }
 
     if (archives.empty()) {
         LOG_WARNING("No MPQ archives loaded - will use loose file fallback");
