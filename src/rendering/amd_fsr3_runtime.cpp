@@ -3,6 +3,8 @@
 #include <algorithm>
 #include <cstdlib>
 #include <cstring>
+#include <type_traits>
+#include <utility>
 #include <vector>
 
 #include "core/logger.hpp"
@@ -46,6 +48,24 @@ AmdFsr3Runtime::~AmdFsr3Runtime() {
 namespace {
 FfxErrorCode vkSwapchainConfigureNoop(const FfxFrameGenerationConfig*) {
     return FFX_OK;
+}
+
+template <typename T, typename = void>
+struct HasUpscaleOutputSize : std::false_type {};
+
+template <typename T>
+struct HasUpscaleOutputSize<T, std::void_t<decltype(std::declval<T&>().upscaleOutputSize)>> : std::true_type {};
+
+template <typename T>
+inline void setUpscaleOutputSizeIfPresent(T& ctxDesc, uint32_t width, uint32_t height) {
+    if constexpr (HasUpscaleOutputSize<T>::value) {
+        ctxDesc.upscaleOutputSize.width = width;
+        ctxDesc.upscaleOutputSize.height = height;
+    } else {
+        (void)ctxDesc;
+        (void)width;
+        (void)height;
+    }
 }
 
 FfxSurfaceFormat mapVkFormatToFfxSurfaceFormat(VkFormat format, bool isDepth) {
@@ -233,8 +253,7 @@ bool AmdFsr3Runtime::initialize(const AmdFsr3RuntimeInitDesc& desc) {
     if (desc.depthInverted) ctxDesc.flags |= FFX_FSR3_ENABLE_DEPTH_INVERTED;
     ctxDesc.maxRenderSize.width = desc.maxRenderWidth;
     ctxDesc.maxRenderSize.height = desc.maxRenderHeight;
-    ctxDesc.upscaleOutputSize.width = desc.displayWidth;
-    ctxDesc.upscaleOutputSize.height = desc.displayHeight;
+    setUpscaleOutputSizeIfPresent(ctxDesc, desc.displayWidth, desc.displayHeight);
     ctxDesc.displaySize.width = desc.displayWidth;
     ctxDesc.displaySize.height = desc.displayHeight;
     if (!backendShared.fpSwapChainConfigureFrameGeneration) {

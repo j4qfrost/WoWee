@@ -4413,6 +4413,10 @@ void Renderer::dispatchAmdFsr2() {
 
 void Renderer::dispatchAmdFsr3Framegen() {
 #if WOWEE_HAS_AMD_FSR3_FRAMEGEN
+    if (!fsr2_.amdFsr3FramegenEnabled) {
+        fsr2_.amdFsr3FramegenRuntimeActive = false;
+        return;
+    }
     if (!fsr2_.amdFsr3Runtime || !fsr2_.amdFsr3FramegenRuntimeReady) {
         fsr2_.amdFsr3FramegenRuntimeActive = false;
         return;
@@ -4517,7 +4521,7 @@ void Renderer::renderFSR2Sharpen() {
     VkDescriptorImageInfo imgInfo{};
     imgInfo.sampler = fsr2_.linearSampler;
     if (fsr2_.useAmdBackend) {
-        imgInfo.imageView = (fsr2_.amdFsr3FramegenRuntimeActive && fsr2_.framegenOutput.imageView)
+        imgInfo.imageView = (fsr2_.amdFsr3FramegenEnabled && fsr2_.amdFsr3FramegenRuntimeActive && fsr2_.framegenOutput.imageView)
             ? fsr2_.framegenOutput.imageView
             : fsr2_.history[outputIdx].imageView;
     } else {
@@ -4583,24 +4587,32 @@ void Renderer::setFSR2DebugTuning(float jitterSign, float motionVecScaleX, float
 }
 
 void Renderer::setAmdFsr3FramegenEnabled(bool enabled) {
+    if (fsr2_.amdFsr3FramegenEnabled == enabled) return;
     fsr2_.amdFsr3FramegenEnabled = enabled;
 #if WOWEE_HAS_AMD_FSR3_FRAMEGEN
     if (enabled) {
         fsr2_.amdFsr3FramegenRuntimeActive = false;
+        fsr2_.framegenOutputValid = false;
         fsr2_.needsRecreate = true;
+        fsr2_.needsHistoryReset = true;
         fsr2_.amdFsr3FramegenRuntimeReady = false;
         LOG_INFO("FSR3 framegen requested; runtime will initialize on next FSR2 resource creation.");
     } else {
         fsr2_.amdFsr3FramegenRuntimeActive = false;
         fsr2_.amdFsr3FramegenRuntimeReady = false;
+        fsr2_.framegenOutputValid = false;
+        fsr2_.needsHistoryReset = true;
+        fsr2_.needsRecreate = true;
         if (fsr2_.amdFsr3Runtime) {
             fsr2_.amdFsr3Runtime->shutdown();
             fsr2_.amdFsr3Runtime.reset();
         }
+        LOG_INFO("FSR3 framegen disabled; forcing FSR2-only path rebuild.");
     }
 #else
     fsr2_.amdFsr3FramegenRuntimeActive = false;
     fsr2_.amdFsr3FramegenRuntimeReady = false;
+    fsr2_.framegenOutputValid = false;
     if (enabled) {
         LOG_WARNING("FSR3 framegen requested, but AMD FSR3 framegen SDK headers are unavailable in this build.");
     }
