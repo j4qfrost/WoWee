@@ -5221,6 +5221,34 @@ void GameScreen::renderBuffBar(game::GameHandler& gameHandler) {
                 ImGui::PopStyleColor();
             }
 
+            // Compute remaining duration once (shared by overlay and tooltip)
+            uint64_t nowMs = static_cast<uint64_t>(
+                std::chrono::duration_cast<std::chrono::milliseconds>(
+                    std::chrono::steady_clock::now().time_since_epoch()).count());
+            int32_t remainMs = aura.getRemainingMs(nowMs);
+
+            // Duration countdown overlay — always visible on the icon bottom
+            if (remainMs > 0) {
+                ImVec2 iconMin = ImGui::GetItemRectMin();
+                ImVec2 iconMax = ImGui::GetItemRectMax();
+                char timeStr[12];
+                int secs = (remainMs + 999) / 1000;  // ceiling seconds
+                if (secs >= 3600)
+                    snprintf(timeStr, sizeof(timeStr), "%dh", secs / 3600);
+                else if (secs >= 60)
+                    snprintf(timeStr, sizeof(timeStr), "%d:%02d", secs / 60, secs % 60);
+                else
+                    snprintf(timeStr, sizeof(timeStr), "%d", secs);
+                ImVec2 textSize = ImGui::CalcTextSize(timeStr);
+                float cx = iconMin.x + (iconMax.x - iconMin.x - textSize.x) * 0.5f;
+                float cy = iconMax.y - textSize.y - 2.0f;
+                // Drop shadow for readability over any icon colour
+                ImGui::GetWindowDrawList()->AddText(ImVec2(cx + 1, cy + 1),
+                    IM_COL32(0, 0, 0, 200), timeStr);
+                ImGui::GetWindowDrawList()->AddText(ImVec2(cx, cy),
+                    IM_COL32(255, 255, 255, 255), timeStr);
+            }
+
             // Right-click to cancel buffs / dismount
             if (ImGui::IsItemClicked(ImGuiMouseButton_Right)) {
                 if (gameHandler.isMounted()) {
@@ -5230,16 +5258,12 @@ void GameScreen::renderBuffBar(game::GameHandler& gameHandler) {
                 }
             }
 
-            // Tooltip with spell name and live countdown
+            // Tooltip with spell name and countdown
             if (ImGui::IsItemHovered()) {
                 std::string name = spellbookScreen.lookupSpellName(aura.spellId, assetMgr);
                 if (name.empty()) name = "Spell #" + std::to_string(aura.spellId);
-                uint64_t nowMs = static_cast<uint64_t>(
-                    std::chrono::duration_cast<std::chrono::milliseconds>(
-                        std::chrono::steady_clock::now().time_since_epoch()).count());
-                int32_t remaining = aura.getRemainingMs(nowMs);
-                if (remaining > 0) {
-                    int seconds = remaining / 1000;
+                if (remainMs > 0) {
+                    int seconds = remainMs / 1000;
                     if (seconds < 60) {
                         ImGui::SetTooltip("%s (%ds)", name.c_str(), seconds);
                     } else {
