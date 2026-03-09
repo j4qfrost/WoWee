@@ -138,7 +138,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          brew install cmake pkg-config sdl2 glew glm openssl@3 zlib ffmpeg unicorn dxc \
+          brew install cmake pkg-config sdl2 glew glm openssl@3 zlib ffmpeg unicorn \
             stormlib vulkan-loader vulkan-headers shaderc dylibbundler || true
           # dylibbundler may not be in all brew mirrors; install separately to not block others
           brew install dylibbundler 2>/dev/null || true

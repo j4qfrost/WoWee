@@ -757,8 +757,10 @@ if(TARGET wowee_fsr3_framegen_amd_vk_probe)
     target_link_libraries(wowee PRIVATE wowee_fsr3_framegen_amd_vk_probe)
 endif()
 if(TARGET wowee_fsr3_official_runtime_copy)
-    # Ensure Path A runtime is available in bin/ whenever wowee is built.
-    add_dependencies(wowee wowee_fsr3_official_runtime_copy)
+    # FSR3 Path A runtime is an opt-in artifact; build explicitly with:
+    #   cmake --build build --target wowee_fsr3_official_runtime_copy
+    # Do NOT add as a hard dependency of wowee — it would break arm64 and Windows CI
+    # (no DXC available on arm64; bash context issues on MSYS2 Windows).
 endif()
 
 # Link Unicorn if available
