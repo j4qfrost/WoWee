@@ -168,6 +168,17 @@ make -j$(nproc)
 ./bin/wowee
 ```
 
+### AMD FSR2 SDK (External)
+
+- Build scripts (`build.sh`, `rebuild.sh`, `build.ps1`, `rebuild.ps1`) auto-fetch the AMD SDK to:
+  - `extern/FidelityFX-FSR2`
+- Source URL:
+  - `https://github.com/GPUOpen-Effects/FidelityFX-FSR2.git`
+- The renderer enables the AMD backend only when both are present:
+  - `extern/FidelityFX-FSR2/src/ffx-fsr2-api/ffx_fsr2.h`
+  - `extern/FidelityFX-FSR2/src/ffx-fsr2-api/vk/shaders/ffx_fsr2_accumulate_pass_permutations.h`
+- If SDK files or generated Vulkan permutation headers are missing, CMake falls back to the internal non-AMD FSR2 path automatically.
+
 ## Controls
 
 ### Camera & Movement

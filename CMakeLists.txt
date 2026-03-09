@@ -27,18 +27,49 @@ option(WOWEE_ENABLE_AMD_FSR2 "Enable AMD FidelityFX FSR2 backend when SDK is pre
 # AMD FidelityFX FSR2 SDK detection (drop-in under extern/FidelityFX-FSR2)
 set(WOWEE_AMD_FSR2_DIR ${CMAKE_SOURCE_DIR}/extern/FidelityFX-FSR2)
 set(WOWEE_AMD_FSR2_HEADER ${WOWEE_AMD_FSR2_DIR}/src/ffx-fsr2-api/ffx_fsr2.h)
-if(WOWEE_ENABLE_AMD_FSR2 AND EXISTS ${WOWEE_AMD_FSR2_HEADER})
+set(WOWEE_AMD_FSR2_VK_PERM_HEADER ${WOWEE_AMD_FSR2_DIR}/src/ffx-fsr2-api/vk/shaders/ffx_fsr2_accumulate_pass_permutations.h)
+if(WOWEE_ENABLE_AMD_FSR2 AND EXISTS ${WOWEE_AMD_FSR2_HEADER} AND EXISTS ${WOWEE_AMD_FSR2_VK_PERM_HEADER})
     message(STATUS "AMD FSR2 SDK detected at ${WOWEE_AMD_FSR2_DIR}")
     add_compile_definitions(WOWEE_HAS_AMD_FSR2=1)
-    include_directories(
+    add_compile_definitions(FFX_GCC=1)
+
+    # AMD FSR2 Vulkan backend sources (official SDK implementation)
+    set(WOWEE_AMD_FSR2_SOURCES
+        ${WOWEE_AMD_FSR2_DIR}/src/ffx-fsr2-api/ffx_assert.cpp
+        ${WOWEE_AMD_FSR2_DIR}/src/ffx-fsr2-api/ffx_fsr2.cpp
+        ${WOWEE_AMD_FSR2_DIR}/src/ffx-fsr2-api/vk/ffx_fsr2_vk.cpp
+        ${WOWEE_AMD_FSR2_DIR}/src/ffx-fsr2-api/vk/shaders/ffx_fsr2_shaders_vk.cpp
+    )
+    add_library(wowee_fsr2_amd_vk STATIC ${WOWEE_AMD_FSR2_SOURCES})
+    set_target_properties(wowee_fsr2_amd_vk PROPERTIES
+        CXX_STANDARD 17
+        CXX_STANDARD_REQUIRED ON
+    )
+    target_include_directories(wowee_fsr2_amd_vk PUBLIC
         ${WOWEE_AMD_FSR2_DIR}/src
         ${WOWEE_AMD_FSR2_DIR}/src/ffx-fsr2-api
         ${WOWEE_AMD_FSR2_DIR}/src/ffx-fsr2-api/vk
+        ${WOWEE_AMD_FSR2_DIR}/src/ffx-fsr2-api/vk/shaders
     )
+    set(WOWEE_FFX_COMPAT_HEADER ${CMAKE_SOURCE_DIR}/include/third_party/ffx_fsr2_compat.h)
+    if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+        target_compile_options(wowee_fsr2_amd_vk PRIVATE
+            "-include${WOWEE_FFX_COMPAT_HEADER}"
+        )
+    elseif(MSVC)
+        target_compile_options(wowee_fsr2_amd_vk PRIVATE
+            "/FI${WOWEE_FFX_COMPAT_HEADER}"
+        )
+    endif()
+    target_link_libraries(wowee_fsr2_amd_vk PUBLIC Vulkan::Vulkan)
 else()
     add_compile_definitions(WOWEE_HAS_AMD_FSR2=0)
     if(WOWEE_ENABLE_AMD_FSR2)
-        message(WARNING "AMD FSR2 SDK not found at ${WOWEE_AMD_FSR2_DIR}; using internal fallback implementation.")
+        if(NOT EXISTS ${WOWEE_AMD_FSR2_HEADER})
+            message(WARNING "AMD FSR2 SDK not found at ${WOWEE_AMD_FSR2_DIR}; using internal fallback implementation.")
+        elseif(NOT EXISTS ${WOWEE_AMD_FSR2_VK_PERM_HEADER})
+            message(WARNING "AMD FSR2 SDK found, but generated Vulkan permutation headers are missing (e.g. ${WOWEE_AMD_FSR2_VK_PERM_HEADER}); using internal fallback implementation.")
+        endif()
     endif()
 endif()
 
@@ -554,6 +585,10 @@ endif()
 # Link vk-bootstrap
 if(TARGET vk-bootstrap)
     target_link_libraries(wowee PRIVATE vk-bootstrap)
+endif()
+
+if(TARGET wowee_fsr2_amd_vk)
+    target_link_libraries(wowee PRIVATE wowee_fsr2_amd_vk)
 endif()
 
 # Link Unicorn if available

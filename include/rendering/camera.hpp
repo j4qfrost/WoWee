@@ -27,6 +27,9 @@ public:
     glm::mat4 getViewProjectionMatrix() const { return projectionMatrix * viewMatrix; }
     glm::mat4 getUnjitteredViewProjectionMatrix() const { return unjitteredProjectionMatrix * viewMatrix; }
     float getAspectRatio() const { return aspectRatio; }
+    float getFovDegrees() const { return fov; }
+    float getNearPlane() const { return nearPlane; }
+    float getFarPlane() const { return farPlane; }
 
     // Sub-pixel jitter for temporal upscaling (FSR 2)
     void setJitter(float jx, float jy);

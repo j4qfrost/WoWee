@@ -5,7 +5,25 @@ set -e  # Exit on error
 
 cd "$(dirname "$0")"
 
+ensure_fsr2_sdk() {
+    local sdk_dir="extern/FidelityFX-FSR2"
+    local sdk_header="$sdk_dir/src/ffx-fsr2-api/ffx_fsr2.h"
+    if [ -f "$sdk_header" ]; then
+        return
+    fi
+    if ! command -v git >/dev/null 2>&1; then
+        echo "Warning: git not found; cannot auto-fetch AMD FSR2 SDK."
+        return
+    fi
+    echo "Fetching AMD FidelityFX FSR2 SDK into $sdk_dir ..."
+    mkdir -p extern
+    git clone --depth 1 https://github.com/GPUOpen-Effects/FidelityFX-FSR2.git "$sdk_dir" || {
+        echo "Warning: failed to clone AMD FSR2 SDK. Build will use internal fallback path."
+    }
+}
+
 echo "Building wowee..."
+ensure_fsr2_sdk
 
 # Create build directory if it doesn't exist
 mkdir -p build

@@ -12,7 +12,26 @@ $ErrorActionPreference = "Stop"
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 Set-Location $ScriptDir
 
+function Ensure-Fsr2Sdk {
+    $sdkDir = Join-Path $ScriptDir "extern\FidelityFX-FSR2"
+    $sdkHeader = Join-Path $sdkDir "src\ffx-fsr2-api\ffx_fsr2.h"
+    if (Test-Path $sdkHeader) { return }
+
+    if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
+        Write-Warning "git not found; cannot auto-fetch AMD FSR2 SDK."
+        return
+    }
+
+    Write-Host "Fetching AMD FidelityFX FSR2 SDK into $sdkDir ..."
+    New-Item -ItemType Directory -Path (Join-Path $ScriptDir "extern") -Force | Out-Null
+    & git clone --depth 1 https://github.com/GPUOpen-Effects/FidelityFX-FSR2.git $sdkDir
+    if ($LASTEXITCODE -ne 0) {
+        Write-Warning "Failed to clone AMD FSR2 SDK. Build will use internal fallback path."
+    }
+}
+
 Write-Host "Clean rebuilding wowee..."
+Ensure-Fsr2Sdk
 
 # Remove build directory completely
 if (Test-Path "build") {

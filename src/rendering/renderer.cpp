@@ -1022,32 +1022,48 @@ void Renderer::beginFrame() {
         return;
     }
 
-    // FSR2 jitter pattern for temporal accumulation.
-    constexpr bool kFsr2TemporalEnabled = false;
+    // FSR2 jitter pattern.
     if (fsr2_.enabled && fsr2_.sceneFramebuffer && camera) {
-        if (!kFsr2TemporalEnabled) {
+        if (!fsr2_.useAmdBackend) {
             camera->setJitter(0.0f, 0.0f);
         } else {
-        glm::mat4 currentVP = camera->getViewProjectionMatrix();
+            glm::mat4 currentVP = camera->getViewProjectionMatrix();
 
-        // Reset history only for clear camera movement.
-        bool cameraMoved = false;
-        for (int i = 0; i < 4 && !cameraMoved; i++) {
-            for (int j = 0; j < 4 && !cameraMoved; j++) {
-                if (std::abs(currentVP[i][j] - fsr2_.lastStableVP[i][j]) > 1e-3f) {
-                    cameraMoved = true;
+            // Reset history only for clear camera movement.
+            bool cameraMoved = false;
+            for (int i = 0; i < 4 && !cameraMoved; i++) {
+                for (int j = 0; j < 4 && !cameraMoved; j++) {
+                    if (std::abs(currentVP[i][j] - fsr2_.lastStableVP[i][j]) > 1e-3f) {
+                        cameraMoved = true;
+                    }
                 }
             }
-        }
-        if (cameraMoved) {
-            fsr2_.lastStableVP = currentVP;
-            fsr2_.needsHistoryReset = true;
-        }
+            if (cameraMoved) {
+                fsr2_.lastStableVP = currentVP;
+                fsr2_.needsHistoryReset = true;
+            }
 
-        const float jitterScale = 0.5f;
-        float jx = (halton(fsr2_.frameIndex + 1, 2) - 0.5f) * 2.0f * jitterScale / static_cast<float>(fsr2_.internalWidth);
-        float jy = (halton(fsr2_.frameIndex + 1, 3) - 0.5f) * 2.0f * jitterScale / static_cast<float>(fsr2_.internalHeight);
-        camera->setJitter(jx, jy);
+#if WOWEE_HAS_AMD_FSR2
+            // AMD-recommended jitter sequence in pixel space, converted to NDC projection offset.
+            int32_t phaseCount = ffxFsr2GetJitterPhaseCount(
+                static_cast<int32_t>(fsr2_.internalWidth),
+                static_cast<int32_t>(vkCtx->getSwapchainExtent().width));
+            float jitterX = 0.0f;
+            float jitterY = 0.0f;
+            if (phaseCount > 0 &&
+                ffxFsr2GetJitterOffset(&jitterX, &jitterY, static_cast<int32_t>(fsr2_.frameIndex % static_cast<uint32_t>(phaseCount)), phaseCount) == FFX_OK) {
+                float ndcJx = (2.0f * jitterX) / static_cast<float>(fsr2_.internalWidth);
+                float ndcJy = (2.0f * jitterY) / static_cast<float>(fsr2_.internalHeight);
+                camera->setJitter(ndcJx, ndcJy);
+            } else {
+                camera->setJitter(0.0f, 0.0f);
+            }
+#else
+            const float jitterScale = 0.5f;
+            float jx = (halton(fsr2_.frameIndex + 1, 2) - 0.5f) * 2.0f * jitterScale / static_cast<float>(fsr2_.internalWidth);
+            float jy = (halton(fsr2_.frameIndex + 1, 3) - 0.5f) * 2.0f * jitterScale / static_cast<float>(fsr2_.internalHeight);
+            camera->setJitter(jx, jy);
+#endif
         }
     }
 
@@ -1152,14 +1168,13 @@ void Renderer::endFrame() {
     if (!vkCtx || currentCmd == VK_NULL_HANDLE) return;
 
     if (fsr2_.enabled && fsr2_.sceneFramebuffer) {
-        constexpr bool kFsr2TemporalEnabled = false;
         // End the off-screen scene render pass
         vkCmdEndRenderPass(currentCmd);
 
-        if (kFsr2TemporalEnabled) {
+        if (fsr2_.useAmdBackend) {
             // Compute passes: motion vectors -> temporal accumulation
             dispatchMotionVectors();
-            dispatchTemporalAccumulate();
+            dispatchAmdFsr2();
 
             // Transition history output: GENERAL -> SHADER_READ_ONLY for sharpen pass
             transitionImageLayout(currentCmd, fsr2_.history[fsr2_.currentHistory].image,
@@ -1209,7 +1224,7 @@ void Renderer::endFrame() {
         fsr2_.prevViewProjection = camera->getViewProjectionMatrix();
         fsr2_.prevJitter = camera->getJitter();
         camera->clearJitter();
-        if (kFsr2TemporalEnabled) {
+        if (fsr2_.useAmdBackend) {
             fsr2_.currentHistory = 1 - fsr2_.currentHistory;
         }
         fsr2_.frameIndex = (fsr2_.frameIndex + 1) % 256;  // Wrap to keep Halton values well-distributed
@@ -3739,6 +3754,7 @@ bool Renderer::initFSR2Resources() {
     LOG_INFO("FSR2: initializing at ", fsr2_.internalWidth, "x", fsr2_.internalHeight,
              " -> ", swapExtent.width, "x", swapExtent.height,
              " (scale=", fsr2_.scaleFactor, ")");
+    fsr2_.useAmdBackend = false;
 #if WOWEE_HAS_AMD_FSR2
     LOG_INFO("FSR2: AMD FidelityFX SDK detected at build time.");
 #else
@@ -3801,6 +3817,51 @@ bool Renderer::initFSR2Resources() {
     samplerInfo.minFilter = VK_FILTER_NEAREST;
     samplerInfo.magFilter = VK_FILTER_NEAREST;
     vkCreateSampler(device, &samplerInfo, nullptr, &fsr2_.nearestSampler);
+
+#if WOWEE_HAS_AMD_FSR2
+    // Initialize AMD FSR2 context; fall back to internal path on any failure.
+    fsr2_.amdScratchBufferSize = ffxFsr2GetScratchMemorySizeVK(vkCtx->getPhysicalDevice());
+    if (fsr2_.amdScratchBufferSize > 0) {
+        fsr2_.amdScratchBuffer = std::malloc(fsr2_.amdScratchBufferSize);
+    }
+    if (!fsr2_.amdScratchBuffer) {
+        LOG_WARNING("FSR2 AMD: failed to allocate scratch buffer, using internal fallback.");
+    } else {
+        FfxErrorCode ifaceErr = ffxFsr2GetInterfaceVK(
+            &fsr2_.amdInterface,
+            fsr2_.amdScratchBuffer,
+            fsr2_.amdScratchBufferSize,
+            vkCtx->getPhysicalDevice(),
+            vkGetDeviceProcAddr);
+        if (ifaceErr != FFX_OK) {
+            LOG_WARNING("FSR2 AMD: ffxFsr2GetInterfaceVK failed (", static_cast<int>(ifaceErr), "), using internal fallback.");
+            std::free(fsr2_.amdScratchBuffer);
+            fsr2_.amdScratchBuffer = nullptr;
+            fsr2_.amdScratchBufferSize = 0;
+        } else {
+            FfxFsr2ContextDescription ctxDesc{};
+            ctxDesc.flags = FFX_FSR2_ENABLE_AUTO_EXPOSURE | FFX_FSR2_ENABLE_MOTION_VECTORS_JITTER_CANCELLATION;
+            ctxDesc.maxRenderSize.width = fsr2_.internalWidth;
+            ctxDesc.maxRenderSize.height = fsr2_.internalHeight;
+            ctxDesc.displaySize.width = swapExtent.width;
+            ctxDesc.displaySize.height = swapExtent.height;
+            ctxDesc.callbacks = fsr2_.amdInterface;
+            ctxDesc.device = ffxGetDeviceVK(vkCtx->getDevice());
+            ctxDesc.fpMessage = nullptr;
+
+            FfxErrorCode ctxErr = ffxFsr2ContextCreate(&fsr2_.amdContext, &ctxDesc);
+            if (ctxErr == FFX_OK) {
+                fsr2_.useAmdBackend = true;
+                LOG_INFO("FSR2 AMD: context created successfully.");
+            } else {
+                LOG_WARNING("FSR2 AMD: context creation failed (", static_cast<int>(ctxErr), "), using internal fallback.");
+                std::free(fsr2_.amdScratchBuffer);
+                fsr2_.amdScratchBuffer = nullptr;
+                fsr2_.amdScratchBufferSize = 0;
+            }
+        }
+    }
+#endif
 
     // --- Motion Vector Compute Pipeline ---
     {
@@ -4078,6 +4139,18 @@ void Renderer::destroyFSR2Resources() {
 
     vkDeviceWaitIdle(device);
 
+#if WOWEE_HAS_AMD_FSR2
+    if (fsr2_.useAmdBackend) {
+        ffxFsr2ContextDestroy(&fsr2_.amdContext);
+        fsr2_.useAmdBackend = false;
+    }
+    if (fsr2_.amdScratchBuffer) {
+        std::free(fsr2_.amdScratchBuffer);
+        fsr2_.amdScratchBuffer = nullptr;
+    }
+    fsr2_.amdScratchBufferSize = 0;
+#endif
+
     if (fsr2_.sharpenPipeline) { vkDestroyPipeline(device, fsr2_.sharpenPipeline, nullptr); fsr2_.sharpenPipeline = VK_NULL_HANDLE; }
     if (fsr2_.sharpenPipelineLayout) { vkDestroyPipelineLayout(device, fsr2_.sharpenPipelineLayout, nullptr); fsr2_.sharpenPipelineLayout = VK_NULL_HANDLE; }
     if (fsr2_.sharpenDescPool) { vkDestroyDescriptorPool(device, fsr2_.sharpenDescPool, nullptr); fsr2_.sharpenDescPool = VK_NULL_HANDLE; fsr2_.sharpenDescSets[0] = fsr2_.sharpenDescSets[1] = VK_NULL_HANDLE; }
@@ -4220,9 +4293,82 @@ void Renderer::dispatchTemporalAccumulate() {
     fsr2_.needsHistoryReset = false;
 }
 
+void Renderer::dispatchAmdFsr2() {
+    if (currentCmd == VK_NULL_HANDLE || !camera) return;
+#if WOWEE_HAS_AMD_FSR2
+    if (!fsr2_.useAmdBackend) return;
+
+    VkExtent2D swapExtent = vkCtx->getSwapchainExtent();
+    uint32_t outputIdx = fsr2_.currentHistory;
+
+    transitionImageLayout(currentCmd, fsr2_.sceneColor.image,
+        VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+        VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
+    transitionImageLayout(currentCmd, fsr2_.motionVectors.image,
+        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
+    transitionImageLayout(currentCmd, fsr2_.sceneDepth.image,
+        VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL,
+        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
+    transitionImageLayout(currentCmd, fsr2_.history[outputIdx].image,
+        fsr2_.needsHistoryReset ? VK_IMAGE_LAYOUT_UNDEFINED : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+        VK_IMAGE_LAYOUT_GENERAL,
+        VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
+
+    FfxFsr2DispatchDescription desc{};
+    desc.commandList = ffxGetCommandListVK(currentCmd);
+    desc.color = ffxGetTextureResourceVK(&fsr2_.amdContext,
+        fsr2_.sceneColor.image, fsr2_.sceneColor.imageView,
+        fsr2_.internalWidth, fsr2_.internalHeight, vkCtx->getSwapchainFormat(),
+        L"FSR2_InputColor", FFX_RESOURCE_STATE_COMPUTE_READ);
+    desc.depth = ffxGetTextureResourceVK(&fsr2_.amdContext,
+        fsr2_.sceneDepth.image, fsr2_.sceneDepth.imageView,
+        fsr2_.internalWidth, fsr2_.internalHeight, vkCtx->getDepthFormat(),
+        L"FSR2_InputDepth", FFX_RESOURCE_STATE_COMPUTE_READ);
+    desc.motionVectors = ffxGetTextureResourceVK(&fsr2_.amdContext,
+        fsr2_.motionVectors.image, fsr2_.motionVectors.imageView,
+        fsr2_.internalWidth, fsr2_.internalHeight, VK_FORMAT_R16G16_SFLOAT,
+        L"FSR2_InputMotionVectors", FFX_RESOURCE_STATE_COMPUTE_READ);
+    desc.output = ffxGetTextureResourceVK(&fsr2_.amdContext,
+        fsr2_.history[outputIdx].image, fsr2_.history[outputIdx].imageView,
+        swapExtent.width, swapExtent.height, VK_FORMAT_R16G16B16A16_SFLOAT,
+        L"FSR2_Output", FFX_RESOURCE_STATE_UNORDERED_ACCESS);
+
+    // Camera jitter is stored as NDC projection offsets; convert to render-pixel offsets.
+    glm::vec2 jitterNdc = camera->getJitter();
+    desc.jitterOffset.x = jitterNdc.x * 0.5f * static_cast<float>(fsr2_.internalWidth);
+    desc.jitterOffset.y = jitterNdc.y * 0.5f * static_cast<float>(fsr2_.internalHeight);
+    desc.motionVectorScale.x = static_cast<float>(fsr2_.internalWidth);
+    desc.motionVectorScale.y = static_cast<float>(fsr2_.internalHeight);
+    desc.renderSize.width = fsr2_.internalWidth;
+    desc.renderSize.height = fsr2_.internalHeight;
+    desc.enableSharpening = false;  // Keep existing RCAS post pass.
+    desc.sharpness = 0.0f;
+    desc.frameTimeDelta = glm::max(0.001f, lastDeltaTime_ * 1000.0f);
+    desc.preExposure = 1.0f;
+    desc.reset = fsr2_.needsHistoryReset;
+    desc.cameraNear = camera->getNearPlane();
+    desc.cameraFar = camera->getFarPlane();
+    desc.cameraFovAngleVertical = glm::radians(camera->getFovDegrees());
+    desc.viewSpaceToMetersFactor = 1.0f;
+    desc.enableAutoReactive = false;
+
+    FfxErrorCode dispatchErr = ffxFsr2ContextDispatch(&fsr2_.amdContext, &desc);
+    if (dispatchErr != FFX_OK) {
+        LOG_WARNING("FSR2 AMD: dispatch failed (", static_cast<int>(dispatchErr), "), forcing history reset.");
+        fsr2_.needsHistoryReset = true;
+    } else {
+        fsr2_.needsHistoryReset = false;
+    }
+#endif
+}
+
 void Renderer::renderFSR2Sharpen() {
     if (!fsr2_.sharpenPipeline || currentCmd == VK_NULL_HANDLE) return;
-    constexpr bool kFsr2TemporalEnabled = false;
 
     VkExtent2D ext = vkCtx->getSwapchainExtent();
     uint32_t outputIdx = fsr2_.currentHistory;
@@ -4234,7 +4380,7 @@ void Renderer::renderFSR2Sharpen() {
     // Update sharpen descriptor to point at current history output
     VkDescriptorImageInfo imgInfo{};
     imgInfo.sampler = fsr2_.linearSampler;
-    imgInfo.imageView = kFsr2TemporalEnabled
+    imgInfo.imageView = fsr2_.useAmdBackend
         ? fsr2_.history[outputIdx].imageView
         : fsr2_.sceneColor.imageView;
     imgInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;

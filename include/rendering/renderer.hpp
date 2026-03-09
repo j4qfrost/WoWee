@@ -11,6 +11,10 @@
 #include "rendering/vk_frame_data.hpp"
 #include "rendering/vk_utils.hpp"
 #include "rendering/sky_system.hpp"
+#if WOWEE_HAS_AMD_FSR2
+#include "ffx_fsr2.h"
+#include "ffx_fsr2_vk.h"
+#endif
 
 namespace wowee {
 namespace core { class Window; }
@@ -420,6 +424,13 @@ private:
         glm::vec2 prevJitter = glm::vec2(0.0f);
         uint32_t frameIndex = 0;
         bool needsHistoryReset = true;
+        bool useAmdBackend = false;
+#if WOWEE_HAS_AMD_FSR2
+        FfxFsr2Context amdContext{};
+        FfxFsr2Interface amdInterface{};
+        void* amdScratchBuffer = nullptr;
+        size_t amdScratchBufferSize = 0;
+#endif
 
         // Convergent accumulation: jitter for N frames then freeze
         int convergenceFrame = 0;
@@ -431,6 +442,7 @@ private:
     void destroyFSR2Resources();
     void dispatchMotionVectors();
     void dispatchTemporalAccumulate();
+    void dispatchAmdFsr2();
     void renderFSR2Sharpen();
     static float halton(uint32_t index, uint32_t base);
 
