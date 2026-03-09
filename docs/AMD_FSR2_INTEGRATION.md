@@ -55,6 +55,7 @@ Runtime note:
 - Wrapper backend mode selection:
   - `WOWEE_FSR3_WRAPPER_BACKEND=vulkan_runtime`
   - `WOWEE_FSR3_WRAPPER_BACKEND=dx12_bridge`
+- Default is `vulkan_runtime` on all platforms. `dx12_bridge` is opt-in while Vulkan<->DX12 interop dispatch is still in progress.
 - DX12 bridge runtime override:
   - `WOWEE_FSR3_DX12_RUNTIME_LIB=<path-to-amd_fidelityfx_framegeneration_dx12.dll>`
 - DX12 bridge device preflight toggle:

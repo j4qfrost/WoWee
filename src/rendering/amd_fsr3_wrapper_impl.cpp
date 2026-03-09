@@ -110,11 +110,7 @@ WrapperBackend selectBackend() {
             }
         }
     }
-#if defined(_WIN32)
-    return WrapperBackend::Dx12Bridge;
-#else
     return WrapperBackend::VulkanRuntime;
-#endif
 }
 
 FfxErrorCode vkSwapchainConfigureNoop(const FfxFrameGenerationConfig*) {
