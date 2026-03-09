@@ -226,6 +226,7 @@ private:
     void renderSettingsWindow();
     void renderQuestMarkers(game::GameHandler& gameHandler);
     void renderMinimapMarkers(game::GameHandler& gameHandler);
+    void renderQuestObjectiveTracker(game::GameHandler& gameHandler);
     void renderGuildRoster(game::GameHandler& gameHandler);
     void renderGuildInvitePopup(game::GameHandler& gameHandler);
     void renderReadyCheckPopup(game::GameHandler& gameHandler);

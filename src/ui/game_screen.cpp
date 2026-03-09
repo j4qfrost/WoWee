@@ -394,6 +394,7 @@ void GameScreen::render(game::GameHandler& gameHandler) {
     renderXpBar(gameHandler);
     renderCastBar(gameHandler);
     renderMirrorTimers(gameHandler);
+    renderQuestObjectiveTracker(gameHandler);
     renderCombatText(gameHandler);
     renderPartyFrames(gameHandler);
     renderGroupInvitePopup(gameHandler);
@@ -4228,6 +4229,96 @@ void GameScreen::renderMirrorTimers(game::GameHandler& gameHandler) {
         ImGui::PopStyleColor();
         ImGui::PopStyleVar();
     }
+}
+
+// ============================================================
+// Quest Objective Tracker (right-side HUD)
+// ============================================================
+
+void GameScreen::renderQuestObjectiveTracker(game::GameHandler& gameHandler) {
+    const auto& questLog = gameHandler.getQuestLog();
+    if (questLog.empty()) return;
+
+    auto* window = core::Application::getInstance().getWindow();
+    float screenW = window ? static_cast<float>(window->getWidth())  : 1280.0f;
+    float screenH = window ? static_cast<float>(window->getHeight()) : 720.0f;
+
+    constexpr float TRACKER_W = 220.0f;
+    constexpr float RIGHT_MARGIN = 10.0f;
+    constexpr int   MAX_QUESTS = 5;
+
+    float x = screenW - TRACKER_W - RIGHT_MARGIN;
+    float y = 200.0f;  // below minimap area
+
+    ImGui::SetNextWindowPos(ImVec2(x, y), ImGuiCond_Always);
+    ImGui::SetNextWindowSize(ImVec2(TRACKER_W, 0), ImGuiCond_Always);
+
+    ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoInputs |
+                             ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoMove |
+                             ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoBringToFrontOnFocus;
+
+    ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.0f, 0.0f, 0.0f, 0.55f));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(6.0f, 6.0f));
+    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(4.0f, 2.0f));
+
+    if (ImGui::Begin("##QuestTracker", nullptr, flags)) {
+        int shown = 0;
+        for (const auto& q : questLog) {
+            if (q.questId == 0) continue;
+            if (shown >= MAX_QUESTS) break;
+
+            // Quest title in yellow (gold) if complete, white if in progress
+            ImVec4 titleCol = q.complete ? ImVec4(1.0f, 0.84f, 0.0f, 1.0f)
+                                         : ImVec4(1.0f, 1.0f, 0.85f, 1.0f);
+            ImGui::TextColored(titleCol, "%s", q.title.c_str());
+
+            // Objectives line (condensed)
+            if (q.complete) {
+                ImGui::TextColored(ImVec4(0.5f, 1.0f, 0.5f, 1.0f), "  (Complete)");
+            } else {
+                // Kill counts
+                for (const auto& [entry, progress] : q.killCounts) {
+                    ImGui::TextColored(ImVec4(0.75f, 0.75f, 0.75f, 1.0f),
+                                       "  %u/%u", progress.first, progress.second);
+                }
+                // Item counts
+                for (const auto& [itemId, count] : q.itemCounts) {
+                    uint32_t required = 1;
+                    auto reqIt = q.requiredItemCounts.find(itemId);
+                    if (reqIt != q.requiredItemCounts.end()) required = reqIt->second;
+                    const auto* info = gameHandler.getItemInfo(itemId);
+                    const char* itemName = (info && !info->name.empty()) ? info->name.c_str() : nullptr;
+                    if (itemName) {
+                        ImGui::TextColored(ImVec4(0.75f, 0.75f, 0.75f, 1.0f),
+                                           "  %s: %u/%u", itemName, count, required);
+                    } else {
+                        ImGui::TextColored(ImVec4(0.75f, 0.75f, 0.75f, 1.0f),
+                                           "  Item: %u/%u", count, required);
+                    }
+                }
+                if (q.killCounts.empty() && q.itemCounts.empty() && !q.objectives.empty()) {
+                    // Show the raw objectives text, truncated if needed
+                    const std::string& obj = q.objectives;
+                    if (obj.size() > 40) {
+                        ImGui::TextColored(ImVec4(0.75f, 0.75f, 0.75f, 1.0f),
+                                           "  %.37s...", obj.c_str());
+                    } else {
+                        ImGui::TextColored(ImVec4(0.75f, 0.75f, 0.75f, 1.0f),
+                                           "  %s", obj.c_str());
+                    }
+                }
+            }
+
+            if (shown < MAX_QUESTS - 1 && shown < static_cast<int>(questLog.size()) - 1) {
+                ImGui::Spacing();
+            }
+            ++shown;
+        }
+    }
+    ImGui::End();
+
+    ImGui::PopStyleVar(2);
+    ImGui::PopStyleColor();
 }
 
 // ============================================================
