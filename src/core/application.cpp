@@ -2096,6 +2096,31 @@ void Application::setupUICallbacks() {
         }
     });
 
+    // Server-triggered music callback (SMSG_PLAY_MUSIC)
+    // Resolves soundId → SoundEntries.dbc → MPQ path → MusicManager.
+    gameHandler->setPlayMusicCallback([this](uint32_t soundId) {
+        if (!assetManager || !renderer) return;
+        auto* music = renderer->getMusicManager();
+        if (!music) return;
+
+        auto dbc = assetManager->loadDBC("SoundEntries.dbc");
+        if (!dbc || !dbc->isLoaded()) return;
+
+        int32_t idx = dbc->findRecordById(soundId);
+        if (idx < 0) return;
+
+        // SoundEntries.dbc (WotLK): fields 2-11 = Name[0..9], field 22 = DirectoryBase
+        const uint32_t row = static_cast<uint32_t>(idx);
+        std::string dir = dbc->getString(row, 22);
+        for (uint32_t f = 2; f <= 11; ++f) {
+            std::string name = dbc->getString(row, f);
+            if (name.empty()) continue;
+            std::string path = dir.empty() ? name : dir + "\\" + name;
+            music->playMusic(path, /*loop=*/false);
+            return;
+        }
+    });
+
     // Other player level-up callback — trigger 3D effect + chat notification
     gameHandler->setOtherPlayerLevelUpCallback([this](uint64_t guid, uint32_t newLevel) {
         if (!gameHandler || !renderer) return;

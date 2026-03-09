@@ -1174,6 +1174,7 @@ void GameHandler::handlePacket(network::Packet& packet) {
         if (packet.getSize() - packet.getReadPos() == 4) {
             uint32_t soundId = packet.readUInt32();
             LOG_INFO("SMSG_PLAY_MUSIC (0x0103 alias): soundId=", soundId);
+            if (playMusicCallback_) playMusicCallback_(soundId);
             return;
         }
     } else if (opcode == 0x0480) {
@@ -4496,8 +4497,8 @@ void GameHandler::handlePacket(network::Packet& packet) {
         // ---- Play music (WotLK standard opcode) ----
         case Opcode::SMSG_PLAY_MUSIC: {
             if (packet.getSize() - packet.getReadPos() >= 4) {
-                /*uint32_t soundId =*/ packet.readUInt32();
-                // TODO: hook into music manager when in-world music is reworked
+                uint32_t soundId = packet.readUInt32();
+                if (playMusicCallback_) playMusicCallback_(soundId);
             }
             break;
         }

@@ -937,6 +937,12 @@ public:
     using AchievementEarnedCallback = std::function<void(uint32_t achievementId)>;
     void setAchievementEarnedCallback(AchievementEarnedCallback cb) { achievementEarnedCallback_ = std::move(cb); }
 
+    // Server-triggered music callback — fires when SMSG_PLAY_MUSIC is received.
+    // The soundId corresponds to a SoundEntries.dbc record. The receiver is
+    // responsible for looking up the file path and forwarding to MusicManager.
+    using PlayMusicCallback = std::function<void(uint32_t soundId)>;
+    void setPlayMusicCallback(PlayMusicCallback cb) { playMusicCallback_ = std::move(cb); }
+
     // Mount state
     using MountCallback = std::function<void(uint32_t mountDisplayId)>;  // 0 = dismount
     void setMountCallback(MountCallback cb) { mountCallback_ = std::move(cb); }
@@ -2088,6 +2094,9 @@ private:
 
     // ---- Forced faction reactions (SMSG_SET_FORCED_REACTIONS) ----
     std::unordered_map<uint32_t, uint8_t> forcedReactions_;  // factionId -> reaction tier
+
+    // ---- Server-triggered music ----
+    PlayMusicCallback playMusicCallback_;
 };
 
 } // namespace game
