@@ -137,6 +137,20 @@ if(WOWEE_ENABLE_AMD_FSR3_FRAMEGEN AND WOWEE_AMD_FFX_SDK_LEGACY_READY)
         ${WOWEE_AMD_FFX_SDK_DIR}/include
     )
     target_link_libraries(wowee_fsr3_vk_wrapper PUBLIC Vulkan::Vulkan ${CMAKE_DL_LIBS})
+
+    add_executable(wowee_fsr3_wrapper_runtime_smoke
+        src/rendering/amd_fsr3_wrapper_runtime_smoke.cpp
+        include/rendering/amd_fsr3_wrapper_abi.h
+    )
+    set_target_properties(wowee_fsr3_wrapper_runtime_smoke PROPERTIES
+        CXX_STANDARD 17
+        CXX_STANDARD_REQUIRED ON
+        RUNTIME_OUTPUT_DIRECTORY ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}
+    )
+    target_include_directories(wowee_fsr3_wrapper_runtime_smoke PUBLIC
+        ${CMAKE_SOURCE_DIR}/include
+    )
+    target_link_libraries(wowee_fsr3_wrapper_runtime_smoke PUBLIC ${CMAKE_DL_LIBS})
 else()
     add_compile_definitions(WOWEE_HAS_AMD_FSR3_FRAMEGEN=0)
     if(WOWEE_ENABLE_AMD_FSR3_FRAMEGEN)
