@@ -707,6 +707,18 @@ public:
     bool hasPendingGroupInvite() const { return pendingGroupInvite; }
     const std::string& getPendingInviterName() const { return pendingInviterName; }
 
+    // ---- Trade ----
+    enum class TradeStatus : uint8_t {
+        None = 0, PendingIncoming, Open, Accepted, Complete
+    };
+    TradeStatus getTradeStatus() const { return tradeStatus_; }
+    bool hasPendingTradeRequest() const { return tradeStatus_ == TradeStatus::PendingIncoming; }
+    const std::string& getTradePeerName() const { return tradePeerName_; }
+    void acceptTradeRequest();   // respond to incoming SMSG_TRADE_STATUS(1) with CMSG_BEGIN_TRADE
+    void declineTradeRequest();  // respond with CMSG_CANCEL_TRADE
+    void acceptTrade();          // lock in offer: CMSG_ACCEPT_TRADE
+    void cancelTrade();          // CMSG_CANCEL_TRADE
+
     // ---- Duel ----
     bool hasPendingDuelRequest() const { return pendingDuelRequest_; }
     const std::string& getDuelChallengerName() const { return duelChallengerName_; }
@@ -1268,6 +1280,7 @@ private:
 
     // ---- Instance lockout handler ----
     void handleRaidInstanceInfo(network::Packet& packet);
+    void handleTradeStatus(network::Packet& packet);
     void handleDuelRequested(network::Packet& packet);
     void handleDuelComplete(network::Packet& packet);
     void handleDuelWinner(network::Packet& packet);
@@ -1624,6 +1637,11 @@ private:
     GroupListData partyData;
     bool pendingGroupInvite = false;
     std::string pendingInviterName;
+
+    // Trade state
+    TradeStatus tradeStatus_  = TradeStatus::None;
+    uint64_t    tradePeerGuid_= 0;
+    std::string tradePeerName_;
 
     // Duel state
     bool pendingDuelRequest_    = false;

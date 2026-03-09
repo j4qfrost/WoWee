@@ -206,6 +206,7 @@ private:
     void renderGroupInvitePopup(game::GameHandler& gameHandler);
     void renderDuelRequestPopup(game::GameHandler& gameHandler);
     void renderLootRollPopup(game::GameHandler& gameHandler);
+    void renderTradeRequestPopup(game::GameHandler& gameHandler);
     void renderBuffBar(game::GameHandler& gameHandler);
     void renderLootWindow(game::GameHandler& gameHandler);
     void renderGossipWindow(game::GameHandler& gameHandler);

@@ -1326,6 +1326,24 @@ public:
     static network::Packet build(uint64_t targetGuid);
 };
 
+/** CMSG_BEGIN_TRADE packet builder (no payload — accepts incoming trade request) */
+class BeginTradePacket {
+public:
+    static network::Packet build();
+};
+
+/** CMSG_CANCEL_TRADE packet builder (no payload) */
+class CancelTradePacket {
+public:
+    static network::Packet build();
+};
+
+/** CMSG_ACCEPT_TRADE packet builder (no payload — lock in current offer) */
+class AcceptTradePacket {
+public:
+    static network::Packet build();
+};
+
 /** CMSG_ATTACKSWING packet builder */
 class AttackSwingPacket {
 public:

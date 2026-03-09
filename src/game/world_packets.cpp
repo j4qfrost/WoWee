@@ -2139,6 +2139,24 @@ network::Packet DuelProposedPacket::build(uint64_t targetGuid) {
     return packet;
 }
 
+network::Packet BeginTradePacket::build() {
+    network::Packet packet(wireOpcode(Opcode::CMSG_BEGIN_TRADE));
+    LOG_DEBUG("Built CMSG_BEGIN_TRADE");
+    return packet;
+}
+
+network::Packet CancelTradePacket::build() {
+    network::Packet packet(wireOpcode(Opcode::CMSG_CANCEL_TRADE));
+    LOG_DEBUG("Built CMSG_CANCEL_TRADE");
+    return packet;
+}
+
+network::Packet AcceptTradePacket::build() {
+    network::Packet packet(wireOpcode(Opcode::CMSG_ACCEPT_TRADE));
+    LOG_DEBUG("Built CMSG_ACCEPT_TRADE");
+    return packet;
+}
+
 network::Packet InitiateTradePacket::build(uint64_t targetGuid) {
     network::Packet packet(wireOpcode(Opcode::CMSG_INITIATE_TRADE));
     packet.writeUInt64(targetGuid);

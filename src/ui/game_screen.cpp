@@ -398,6 +398,7 @@ void GameScreen::render(game::GameHandler& gameHandler) {
     renderGroupInvitePopup(gameHandler);
     renderDuelRequestPopup(gameHandler);
     renderLootRollPopup(gameHandler);
+    renderTradeRequestPopup(gameHandler);
     renderGuildInvitePopup(gameHandler);
     renderGuildRoster(gameHandler);
     renderBuffBar(gameHandler);
@@ -4397,6 +4398,30 @@ void GameScreen::renderDuelRequestPopup(game::GameHandler& gameHandler) {
         ImGui::SameLine();
         if (ImGui::Button("Decline", ImVec2(130, 30))) {
             gameHandler.forfeitDuel();
+        }
+    }
+    ImGui::End();
+}
+
+void GameScreen::renderTradeRequestPopup(game::GameHandler& gameHandler) {
+    if (!gameHandler.hasPendingTradeRequest()) return;
+
+    auto* window = core::Application::getInstance().getWindow();
+    float screenW = window ? static_cast<float>(window->getWidth()) : 1280.0f;
+
+    ImGui::SetNextWindowPos(ImVec2(screenW / 2 - 150, 370), ImGuiCond_Always);
+    ImGui::SetNextWindowSize(ImVec2(300, 0), ImGuiCond_Always);
+
+    if (ImGui::Begin("Trade Request", nullptr, ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoResize)) {
+        ImGui::Text("%s wants to trade with you.", gameHandler.getTradePeerName().c_str());
+        ImGui::Spacing();
+
+        if (ImGui::Button("Accept", ImVec2(130, 30))) {
+            gameHandler.acceptTradeRequest();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Decline", ImVec2(130, 30))) {
+            gameHandler.declineTradeRequest();
         }
     }
     ImGui::End();

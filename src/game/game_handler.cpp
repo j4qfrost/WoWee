@@ -1953,6 +1953,10 @@ void GameHandler::handlePacket(network::Packet& packet) {
         case Opcode::SMSG_LOOT_REMOVED:
             handleLootRemoved(packet);
             break;
+        case Opcode::SMSG_TRADE_STATUS:
+        case Opcode::SMSG_TRADE_STATUS_EXTENDED:
+            handleTradeStatus(packet);
+            break;
         case Opcode::SMSG_LOOT_ROLL:
             handleLootRoll(packet);
             break;
@@ -14989,6 +14993,100 @@ void GameHandler::handleAuctionCommandResult(network::Packet& packet) {
     }
     LOG_INFO("SMSG_AUCTION_COMMAND_RESULT: action=", actionName,
              " error=", result.errorCode);
+}
+
+// ---------------------------------------------------------------------------
+// Trade (SMSG_TRADE_STATUS / SMSG_TRADE_STATUS_EXTENDED)
+// WotLK 3.3.5a status values:
+//   0=busy, 1=begin_trade(+guid), 2=open_window, 3=cancelled, 4=accepted,
+//   5=busy2, 6=no_target, 7=back_to_trade, 8=complete, 9=rejected,
+//   10=too_far, 11=wrong_faction, 12=close_window, 13=ignore,
+//   14-19=stun/dead/logout, 20=trial, 21=conjured_only
+// ---------------------------------------------------------------------------
+
+void GameHandler::handleTradeStatus(network::Packet& packet) {
+    if (packet.getSize() - packet.getReadPos() < 4) return;
+    uint32_t status = packet.readUInt32();
+
+    switch (status) {
+        case 1: { // BEGIN_TRADE — incoming request; read initiator GUID
+            if (packet.getSize() - packet.getReadPos() >= 8) {
+                tradePeerGuid_ = packet.readUInt64();
+            }
+            // Resolve name from entity list
+            tradePeerName_.clear();
+            auto entity = entityManager.getEntity(tradePeerGuid_);
+            if (auto* unit = dynamic_cast<Unit*>(entity.get())) {
+                tradePeerName_ = unit->getName();
+            }
+            if (tradePeerName_.empty()) {
+                char tmp[32];
+                std::snprintf(tmp, sizeof(tmp), "0x%llX",
+                              static_cast<unsigned long long>(tradePeerGuid_));
+                tradePeerName_ = tmp;
+            }
+            tradeStatus_ = TradeStatus::PendingIncoming;
+            addSystemChatMessage(tradePeerName_ + " wants to trade with you.");
+            break;
+        }
+        case 2: // OPEN_WINDOW
+            tradeStatus_ = TradeStatus::Open;
+            addSystemChatMessage("Trade window opened.");
+            break;
+        case 3: // CANCELLED
+        case 9: // REJECTED
+        case 12: // CLOSE_WINDOW
+            tradeStatus_ = TradeStatus::None;
+            addSystemChatMessage("Trade cancelled.");
+            break;
+        case 4: // ACCEPTED (partner accepted)
+            tradeStatus_ = TradeStatus::Accepted;
+            addSystemChatMessage("Trade accepted. Awaiting other player...");
+            break;
+        case 8: // COMPLETE
+            tradeStatus_ = TradeStatus::Complete;
+            addSystemChatMessage("Trade complete!");
+            tradeStatus_ = TradeStatus::None;  // reset after notification
+            break;
+        case 7: // BACK_TO_TRADE (unaccepted after a change)
+            tradeStatus_ = TradeStatus::Open;
+            addSystemChatMessage("Trade offer changed.");
+            break;
+        case 10: addSystemChatMessage("Trade target is too far away."); break;
+        case 11: addSystemChatMessage("Trade failed: wrong faction."); break;
+        case 13: addSystemChatMessage("Trade failed: player ignores you."); break;
+        case 14: addSystemChatMessage("Trade failed: you are stunned."); break;
+        case 15: addSystemChatMessage("Trade failed: target is stunned."); break;
+        case 16: addSystemChatMessage("Trade failed: you are dead."); break;
+        case 17: addSystemChatMessage("Trade failed: target is dead."); break;
+        case 20: addSystemChatMessage("Trial accounts cannot trade."); break;
+        default: break;
+    }
+    LOG_DEBUG("SMSG_TRADE_STATUS: status=", status);
+}
+
+void GameHandler::acceptTradeRequest() {
+    if (tradeStatus_ != TradeStatus::PendingIncoming || !socket) return;
+    tradeStatus_ = TradeStatus::Open;
+    socket->send(BeginTradePacket::build());
+}
+
+void GameHandler::declineTradeRequest() {
+    if (!socket) return;
+    tradeStatus_ = TradeStatus::None;
+    socket->send(CancelTradePacket::build());
+}
+
+void GameHandler::acceptTrade() {
+    if (tradeStatus_ != TradeStatus::Open || !socket) return;
+    tradeStatus_ = TradeStatus::Accepted;
+    socket->send(AcceptTradePacket::build());
+}
+
+void GameHandler::cancelTrade() {
+    if (!socket) return;
+    tradeStatus_ = TradeStatus::None;
+    socket->send(CancelTradePacket::build());
 }
 
 // ---------------------------------------------------------------------------
