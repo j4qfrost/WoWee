@@ -596,8 +596,10 @@ WOWEE_FSR3_WRAPPER_EXPORT int32_t wowee_fsr3_wrapper_initialize(const WoweeFsr3W
         return -1;
     }
 
-    const WrapperBackend backend = selectBackend();
-    if (backend == WrapperBackend::Dx12Bridge) {
+    const char* backendEnvRaw = std::getenv("WOWEE_FSR3_WRAPPER_BACKEND");
+    const bool backendExplicit = (backendEnvRaw && *backendEnvRaw);
+    const WrapperBackend selectedBackend = selectBackend();
+    if (selectedBackend == WrapperBackend::Dx12Bridge) {
 #if !defined(_WIN32)
         writeError(outErrorText, outErrorTextCapacity,
                    "dx12_bridge backend is Windows-only in current wrapper build");
@@ -611,103 +613,133 @@ WOWEE_FSR3_WRAPPER_EXPORT int32_t wowee_fsr3_wrapper_initialize(const WoweeFsr3W
 #endif
     }
 
-    std::vector<std::string> candidates;
+    std::vector<std::string> baseCandidates;
     if (const char* backendEnv = std::getenv("WOWEE_FSR3_WRAPPER_BACKEND_LIB")) {
-        if (*backendEnv) candidates.emplace_back(backendEnv);
+        if (*backendEnv) baseCandidates.emplace_back(backendEnv);
     }
     if (const char* runtimeEnv = std::getenv("WOWEE_FFX_SDK_RUNTIME_LIB")) {
-        if (*runtimeEnv) candidates.emplace_back(runtimeEnv);
+        if (*runtimeEnv) baseCandidates.emplace_back(runtimeEnv);
     }
-#if defined(_WIN32)
-    if (backend == WrapperBackend::Dx12Bridge) {
-        candidates.emplace_back("amd_fidelityfx_framegeneration_dx12.dll");
-        candidates.emplace_back("ffx_framegeneration_dx12.dll");
-    }
-    candidates.emplace_back("ffx_fsr3_vk.dll");
-    candidates.emplace_back("ffx_fsr3.dll");
-    candidates.emplace_back("ffx_fsr3_bridge.dll");
-#elif defined(__APPLE__)
-    candidates.emplace_back("libffx_fsr3_vk.dylib");
-    candidates.emplace_back("libffx_fsr3.dylib");
-    candidates.emplace_back("libffx_fsr3_bridge.dylib");
-#else
-    candidates.emplace_back("./libffx_fsr3_vk.so");
-    candidates.emplace_back("libffx_fsr3_vk.so");
-    candidates.emplace_back("libffx_fsr3.so");
-    candidates.emplace_back("libffx_fsr3_bridge.so");
-#endif
 
     WrapperContext* ctx = new WrapperContext{};
-    ctx->backend = backend;
+    ctx->backend = selectedBackend;
 #if defined(_WIN32)
-    if (backend == WrapperBackend::Dx12Bridge) {
+    auto initDx12BridgeState = [&](const WoweeFsr3WrapperInitDesc* desc) -> bool {
+        if (ctx->dx12Device) return true;
+        if (!runDx12BridgePreflight(desc, ctx->lastError)) return false;
         if (D3D12CreateDevice(nullptr, D3D_FEATURE_LEVEL_12_0, IID_PPV_ARGS(&ctx->dx12Device)) != S_OK || !ctx->dx12Device) {
-            destroyContext(ctx);
-            writeError(outErrorText, outErrorTextCapacity, "dx12_bridge failed to create D3D12 device");
-            return -1;
+            ctx->lastError = "dx12_bridge failed to create D3D12 device";
+            return false;
         }
 
         D3D12_COMMAND_QUEUE_DESC queueDesc{};
         queueDesc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
         if (ctx->dx12Device->CreateCommandQueue(&queueDesc, IID_PPV_ARGS(&ctx->dx12Queue)) != S_OK || !ctx->dx12Queue) {
-            destroyContext(ctx);
-            writeError(outErrorText, outErrorTextCapacity, "dx12_bridge failed to create command queue");
-            return -1;
+            ctx->lastError = "dx12_bridge failed to create command queue";
+            return false;
         }
         if (ctx->dx12Device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&ctx->dx12CommandAllocator)) != S_OK ||
             !ctx->dx12CommandAllocator) {
-            destroyContext(ctx);
-            writeError(outErrorText, outErrorTextCapacity, "dx12_bridge failed to create command allocator");
-            return -1;
+            ctx->lastError = "dx12_bridge failed to create command allocator";
+            return false;
         }
         if (ctx->dx12Device->CreateCommandList(
                 0, D3D12_COMMAND_LIST_TYPE_DIRECT, ctx->dx12CommandAllocator, nullptr,
                 IID_PPV_ARGS(&ctx->dx12CommandList)) != S_OK || !ctx->dx12CommandList) {
-            destroyContext(ctx);
-            writeError(outErrorText, outErrorTextCapacity, "dx12_bridge failed to create command list");
-            return -1;
+            ctx->lastError = "dx12_bridge failed to create command list";
+            return false;
         }
         ctx->dx12CommandList->Close();
         if (ctx->dx12Device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&ctx->dx12Fence)) != S_OK || !ctx->dx12Fence) {
-            destroyContext(ctx);
-            writeError(outErrorText, outErrorTextCapacity, "dx12_bridge failed to create fence");
-            return -1;
+            ctx->lastError = "dx12_bridge failed to create fence";
+            return false;
         }
         ctx->dx12FenceEvent = CreateEventA(nullptr, FALSE, FALSE, nullptr);
         if (!ctx->dx12FenceEvent) {
-            destroyContext(ctx);
-            writeError(outErrorText, outErrorTextCapacity, "dx12_bridge failed to create fence event");
-            return -1;
+            ctx->lastError = "dx12_bridge failed to create fence event";
+            return false;
         }
         ctx->dx12FenceValue = 1;
+        return true;
+    };
+#endif
+
+    auto tryLoadForBackend = [&](WrapperBackend backend) -> bool {
+#if defined(_WIN32)
+        if (backend == WrapperBackend::Dx12Bridge && !initDx12BridgeState(initDesc)) {
+            return false;
+        }
+#endif
+        std::vector<std::string> candidates = baseCandidates;
+#if defined(_WIN32)
+        if (backend == WrapperBackend::Dx12Bridge) {
+            candidates.emplace_back("amd_fidelityfx_framegeneration_dx12.dll");
+            candidates.emplace_back("ffx_framegeneration_dx12.dll");
+        }
+        candidates.emplace_back("ffx_fsr3_vk.dll");
+        candidates.emplace_back("ffx_fsr3.dll");
+        candidates.emplace_back("ffx_fsr3_bridge.dll");
+#elif defined(__APPLE__)
+        candidates.emplace_back("libffx_fsr3_vk.dylib");
+        candidates.emplace_back("libffx_fsr3.dylib");
+        candidates.emplace_back("libffx_fsr3_bridge.dylib");
+#else
+        candidates.emplace_back("./libffx_fsr3_vk.so");
+        candidates.emplace_back("libffx_fsr3_vk.so");
+        candidates.emplace_back("libffx_fsr3.so");
+        candidates.emplace_back("libffx_fsr3_bridge.so");
+#endif
+
+        for (const std::string& path : candidates) {
+            void* candidateHandle = openLibrary(path.c_str());
+            if (!candidateHandle) continue;
+
+            RuntimeFns candidateFns{};
+#if defined(_WIN32)
+            const bool bound = (backend == WrapperBackend::Dx12Bridge)
+                ? bindDx12RuntimeFns(candidateHandle, candidateFns)
+                : bindVulkanRuntimeFns(candidateHandle, candidateFns);
+#else
+            const bool bound = bindVulkanRuntimeFns(candidateHandle, candidateFns);
+#endif
+            if (!bound) {
+                closeLibrary(candidateHandle);
+                continue;
+            }
+
+            ctx->backend = backend;
+            ctx->backendLibHandle = candidateHandle;
+            ctx->fns = candidateFns;
+            return true;
+        }
+        return false;
+    };
+
+    bool loaded = tryLoadForBackend(selectedBackend);
+#if defined(_WIN32)
+    if (!loaded && !backendExplicit && selectedBackend == WrapperBackend::VulkanRuntime) {
+        loaded = tryLoadForBackend(WrapperBackend::Dx12Bridge);
     }
 #endif
-    for (const std::string& path : candidates) {
-        void* candidateHandle = openLibrary(path.c_str());
-        if (!candidateHandle) continue;
-
-        RuntimeFns candidateFns{};
-#if defined(_WIN32)
-        const bool bound = (backend == WrapperBackend::Dx12Bridge)
-            ? bindDx12RuntimeFns(candidateHandle, candidateFns)
-            : bindVulkanRuntimeFns(candidateHandle, candidateFns);
-#else
-        const bool bound = bindVulkanRuntimeFns(candidateHandle, candidateFns);
-#endif
-        if (!bound) {
-            closeLibrary(candidateHandle);
-            continue;
+    if (!loaded) {
+        if (ctx->backendLibHandle) {
+            closeLibrary(ctx->backendLibHandle);
+            ctx->backendLibHandle = nullptr;
         }
-
-        ctx->backendLibHandle = candidateHandle;
-        ctx->fns = candidateFns;
-        break;
     }
     if (!ctx->backendLibHandle) {
+        const bool attemptedDx12 =
+            (selectedBackend == WrapperBackend::Dx12Bridge)
+#if defined(_WIN32)
+            || (!backendExplicit && selectedBackend == WrapperBackend::VulkanRuntime)
+#endif
+            ;
+        const std::string err = ctx->lastError;
         destroyContext(ctx);
-        if (backend == WrapperBackend::Dx12Bridge) {
+        if (attemptedDx12) {
             writeError(outErrorText, outErrorTextCapacity,
-                       "dx12_bridge requested, but no dispatch-capable runtime exports were found");
+                       err.empty() ? "dx12_bridge requested, but no dispatch-capable runtime exports were found"
+                                   : err.c_str());
         } else {
             writeError(outErrorText, outErrorTextCapacity, "no FSR3 backend runtime found for wrapper");
         }
@@ -721,7 +753,7 @@ WOWEE_FSR3_WRAPPER_EXPORT int32_t wowee_fsr3_wrapper_initialize(const WoweeFsr3W
         return -1;
     }
 
-    if (backend == WrapperBackend::Dx12Bridge) {
+    if (ctx->backend == WrapperBackend::Dx12Bridge) {
 #if defined(_WIN32)
         ctx->scratchBufferSize = ctx->fns.getScratchMemorySizeDX12(FFX_FSR3_CONTEXT_COUNT);
 #else
@@ -744,7 +776,7 @@ WOWEE_FSR3_WRAPPER_EXPORT int32_t wowee_fsr3_wrapper_initialize(const WoweeFsr3W
 
     FfxInterface backendShared{};
     FfxErrorCode ifaceErr = FFX_ERROR_INVALID_ARGUMENT;
-    if (backend == WrapperBackend::Dx12Bridge) {
+    if (ctx->backend == WrapperBackend::Dx12Bridge) {
 #if defined(_WIN32)
         FfxDevice ffxDevice = ctx->fns.getDeviceDX12(ctx->dx12Device);
         ifaceErr = ctx->fns.getInterfaceDX12(
@@ -761,7 +793,9 @@ WOWEE_FSR3_WRAPPER_EXPORT int32_t wowee_fsr3_wrapper_initialize(const WoweeFsr3W
     }
     if (ifaceErr != FFX_OK) {
         destroyContext(ctx);
-        writeError(outErrorText, outErrorTextCapacity, "ffxGetInterfaceVK failed");
+        writeError(outErrorText, outErrorTextCapacity,
+                   ctx->backend == WrapperBackend::Dx12Bridge ? "ffxGetInterfaceDX12 failed"
+                                                              : "ffxGetInterfaceVK failed");
         return -1;
     }
 
