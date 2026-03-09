@@ -52,6 +52,9 @@ Runtime note:
   - `wowee_fsr3_vk_wrapper` (output in `build/bin`).
 - Wrapper backend runtime override:
   - `WOWEE_FSR3_WRAPPER_BACKEND_LIB=/absolute/path/to/libffx_fsr3_vk.so` (or `.dll` / `.dylib`).
+- Wrapper backend mode selection:
+  - `WOWEE_FSR3_WRAPPER_BACKEND=vulkan_runtime`
+  - `WOWEE_FSR3_WRAPPER_BACKEND=dx12_bridge`
 - Path B wrapper ABI contract is declared in:
   - `include/rendering/amd_fsr3_wrapper_abi.h`
 - Required wrapper exports:

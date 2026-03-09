@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cctype>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
@@ -36,6 +37,32 @@ void writeError(char* outErrorText, uint32_t outErrorTextCapacity, const char* m
 }
 
 #if WOWEE_HAS_AMD_FSR3_FRAMEGEN
+enum class WrapperBackend {
+    VulkanRuntime,
+    Dx12Bridge
+};
+
+WrapperBackend selectBackend() {
+    if (const char* envBackend = std::getenv("WOWEE_FSR3_WRAPPER_BACKEND")) {
+        if (envBackend && *envBackend) {
+            std::string mode(envBackend);
+            std::transform(mode.begin(), mode.end(), mode.begin(),
+                           [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+            if (mode == "dx12" || mode == "dx12_bridge" || mode == "d3d12") {
+                return WrapperBackend::Dx12Bridge;
+            }
+            if (mode == "vulkan" || mode == "vk" || mode == "vulkan_runtime") {
+                return WrapperBackend::VulkanRuntime;
+            }
+        }
+    }
+#if defined(_WIN32)
+    return WrapperBackend::Dx12Bridge;
+#else
+    return WrapperBackend::VulkanRuntime;
+#endif
+}
+
 FfxErrorCode vkSwapchainConfigureNoop(const FfxFrameGenerationConfig*) {
     return FFX_OK;
 }
@@ -207,7 +234,7 @@ WOWEE_FSR3_WRAPPER_EXPORT uint32_t wowee_fsr3_wrapper_get_abi_version(void) {
 }
 
 WOWEE_FSR3_WRAPPER_EXPORT const char* wowee_fsr3_wrapper_get_name(void) {
-    return "WoWee FSR3 DX12/VK Wrapper";
+    return "WoWee FSR3 Wrapper";
 }
 
 WOWEE_FSR3_WRAPPER_EXPORT int32_t wowee_fsr3_wrapper_initialize(const WoweeFsr3WrapperInitDesc* initDesc,
@@ -235,6 +262,18 @@ WOWEE_FSR3_WRAPPER_EXPORT int32_t wowee_fsr3_wrapper_initialize(const WoweeFsr3W
         initDesc->colorFormat == VK_FORMAT_UNDEFINED) {
         writeError(outErrorText, outErrorTextCapacity, "invalid init descriptor values");
         return -1;
+    }
+
+    if (selectBackend() == WrapperBackend::Dx12Bridge) {
+#if !defined(_WIN32)
+        writeError(outErrorText, outErrorTextCapacity,
+                   "dx12_bridge backend is Windows-only in current wrapper build");
+        return -1;
+#else
+        writeError(outErrorText, outErrorTextCapacity,
+                   "dx12_bridge backend selected but Vulkan<->DX12 interop dispatch is not implemented yet");
+        return -1;
+#endif
     }
 
     std::vector<std::string> candidates;
