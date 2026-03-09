@@ -2703,13 +2703,11 @@ void GameHandler::handlePacket(network::Packet& packet) {
             pendingQuestQueryIds_.erase(questId);
             break;
         }
-        case Opcode::SMSG_QUESTLOG_FULL: {
-            LOG_INFO("***** RECEIVED SMSG_QUESTLOG_FULL *****");
-            LOG_INFO("  Packet size: ", packet.getSize());
-            LOG_INFO("  Server uses SMSG_QUESTLOG_FULL for quest log sync!");
-            // TODO: Parse quest log entries from this packet
+        case Opcode::SMSG_QUESTLOG_FULL:
+            // Zero-payload notification: the player's quest log is full (25 quests).
+            addSystemChatMessage("Your quest log is full.");
+            LOG_INFO("SMSG_QUESTLOG_FULL: quest log is at capacity");
             break;
-        }
         case Opcode::SMSG_QUESTGIVER_REQUEST_ITEMS:
             handleQuestRequestItems(packet);
             break;
@@ -9300,50 +9298,154 @@ void GameHandler::handleMonsterMove(network::Packet& packet) {
 
 void GameHandler::handleMonsterMoveTransport(network::Packet& packet) {
     // Parse transport-relative creature movement (NPCs on boats/zeppelins)
-    // Packet structure: mover GUID + transport GUID + spline data (local coords)
+    // Packet: moverGuid(8) + unk(1) + transportGuid(8) + localX/Y/Z(12) + spline data
 
+    if (packet.getSize() - packet.getReadPos() < 8 + 1 + 8 + 12) return;
     uint64_t moverGuid = packet.readUInt64();
-    uint8_t unk = packet.readUInt8();  // Unknown byte (usually 0)
+    /*uint8_t unk =*/ packet.readUInt8();
     uint64_t transportGuid = packet.readUInt64();
 
-    // Transport-local coordinates (server space)
+    // Transport-local start position (server coords: x=east/west, y=north/south, z=up)
     float localX = packet.readFloat();
     float localY = packet.readFloat();
     float localZ = packet.readFloat();
 
-    LOG_INFO("SMSG_MONSTER_MOVE_TRANSPORT: mover=0x", std::hex, moverGuid,
-             " transport=0x", transportGuid, std::dec,
-             " localPos=(", localX, ", ", localY, ", ", localZ, ")");
-
-    // Compose world position: worldPos = transportTransform * localPos
     auto entity = entityManager.getEntity(moverGuid);
-    if (!entity) {
-        LOG_WARNING("  NPC 0x", std::hex, moverGuid, std::dec, " not found in entity manager");
+    if (!entity) return;
+
+    // ---- Spline data (same format as SMSG_MONSTER_MOVE, transport-local coords) ----
+    if (packet.getReadPos() + 5 > packet.getSize()) {
+        // No spline data — snap to start position
+        if (transportManager_) {
+            glm::vec3 localCanonical = core::coords::serverToCanonical(glm::vec3(localX, localY, localZ));
+            setTransportAttachment(moverGuid, entity->getType(), transportGuid, localCanonical, false, 0.0f);
+            glm::vec3 worldPos = transportManager_->getPlayerWorldPosition(transportGuid, localCanonical);
+            entity->setPosition(worldPos.x, worldPos.y, worldPos.z, entity->getOrientation());
+            if (entity->getType() == ObjectType::UNIT && creatureMoveCallback_)
+                creatureMoveCallback_(moverGuid, worldPos.x, worldPos.y, worldPos.z, 0);
+        }
         return;
     }
 
-    if (transportManager_) {
-        // Use TransportManager to compose world position from local offset
-        glm::vec3 localPosCanonical = core::coords::serverToCanonical(glm::vec3(localX, localY, localZ));
-        setTransportAttachment(moverGuid, entity->getType(), transportGuid, localPosCanonical, false, 0.0f);
-        glm::vec3 worldPos = transportManager_->getPlayerWorldPosition(transportGuid, localPosCanonical);
+    /*uint32_t splineId =*/ packet.readUInt32();
+    uint8_t moveType = packet.readUInt8();
 
-        entity->setPosition(worldPos.x, worldPos.y, worldPos.z, entity->getOrientation());
-
-        LOG_INFO("  Composed NPC world position: (", worldPos.x, ", ", worldPos.y, ", ", worldPos.z, ")");
-
-        if (entity->getType() == ObjectType::UNIT && creatureMoveCallback_) {
-            creatureMoveCallback_(moverGuid, worldPos.x, worldPos.y, worldPos.z, 0);
+    if (moveType == 1) {
+        // Stop — snap to start position
+        if (transportManager_) {
+            glm::vec3 localCanonical = core::coords::serverToCanonical(glm::vec3(localX, localY, localZ));
+            setTransportAttachment(moverGuid, entity->getType(), transportGuid, localCanonical, false, 0.0f);
+            glm::vec3 worldPos = transportManager_->getPlayerWorldPosition(transportGuid, localCanonical);
+            entity->setPosition(worldPos.x, worldPos.y, worldPos.z, entity->getOrientation());
+            if (entity->getType() == ObjectType::UNIT && creatureMoveCallback_)
+                creatureMoveCallback_(moverGuid, worldPos.x, worldPos.y, worldPos.z, 0);
         }
-    } else {
-        LOG_WARNING("  TransportManager not available for NPC position composition");
+        return;
     }
 
-    // TODO: Parse full spline data for smooth NPC movement on transport
-    // Then update entity position and call creatureMoveCallback_
+    // Facing data based on moveType
+    float facingAngle = entity->getOrientation();
+    if (moveType == 2) {       // FacingSpot
+        if (packet.getReadPos() + 12 > packet.getSize()) return;
+        float sx = packet.readFloat(), sy = packet.readFloat(), sz = packet.readFloat();
+        facingAngle = std::atan2(-(sy - localY), sx - localX);
+        (void)sz;
+    } else if (moveType == 3) { // FacingTarget
+        if (packet.getReadPos() + 8 > packet.getSize()) return;
+        uint64_t tgtGuid = packet.readUInt64();
+        if (auto tgt = entityManager.getEntity(tgtGuid)) {
+            float dx = tgt->getX() - entity->getX();
+            float dy = tgt->getY() - entity->getY();
+            if (std::abs(dx) > 0.01f || std::abs(dy) > 0.01f)
+                facingAngle = std::atan2(-dy, dx);
+        }
+    } else if (moveType == 4) { // FacingAngle
+        if (packet.getReadPos() + 4 > packet.getSize()) return;
+        facingAngle = core::coords::serverToCanonicalYaw(packet.readFloat());
+    }
 
-    // Suppress unused variable warning for now
-    (void)unk;
+    if (packet.getReadPos() + 4 > packet.getSize()) return;
+    uint32_t splineFlags = packet.readUInt32();
+
+    if (splineFlags & 0x00400000) { // Animation
+        if (packet.getReadPos() + 5 > packet.getSize()) return;
+        packet.readUInt8(); packet.readUInt32();
+    }
+
+    if (packet.getReadPos() + 4 > packet.getSize()) return;
+    uint32_t duration = packet.readUInt32();
+
+    if (splineFlags & 0x00000800) { // Parabolic
+        if (packet.getReadPos() + 8 > packet.getSize()) return;
+        packet.readFloat(); packet.readUInt32();
+    }
+
+    if (packet.getReadPos() + 4 > packet.getSize()) return;
+    uint32_t pointCount = packet.readUInt32();
+
+    // Read destination point (transport-local server coords)
+    float destLocalX = localX, destLocalY = localY, destLocalZ = localZ;
+    bool hasDest = false;
+    if (pointCount > 0) {
+        const bool uncompressed = (splineFlags & (0x00080000 | 0x00002000)) != 0;
+        if (uncompressed) {
+            for (uint32_t i = 0; i < pointCount - 1; ++i) {
+                if (packet.getReadPos() + 12 > packet.getSize()) break;
+                packet.readFloat(); packet.readFloat(); packet.readFloat();
+            }
+            if (packet.getReadPos() + 12 <= packet.getSize()) {
+                destLocalX = packet.readFloat();
+                destLocalY = packet.readFloat();
+                destLocalZ = packet.readFloat();
+                hasDest = true;
+            }
+        } else {
+            if (packet.getReadPos() + 12 <= packet.getSize()) {
+                destLocalX = packet.readFloat();
+                destLocalY = packet.readFloat();
+                destLocalZ = packet.readFloat();
+                hasDest = true;
+            }
+        }
+    }
+
+    if (!transportManager_) {
+        LOG_WARNING("SMSG_MONSTER_MOVE_TRANSPORT: TransportManager not available for mover 0x",
+                    std::hex, moverGuid, std::dec);
+        return;
+    }
+
+    glm::vec3 startLocalCanonical = core::coords::serverToCanonical(glm::vec3(localX, localY, localZ));
+
+    if (hasDest && duration > 0) {
+        glm::vec3 destLocalCanonical = core::coords::serverToCanonical(glm::vec3(destLocalX, destLocalY, destLocalZ));
+        glm::vec3 startWorld = transportManager_->getPlayerWorldPosition(transportGuid, startLocalCanonical);
+        glm::vec3 destWorld  = transportManager_->getPlayerWorldPosition(transportGuid, destLocalCanonical);
+
+        // Face toward destination unless an explicit facing was given
+        if (moveType == 0) {
+            float dx = destLocalCanonical.x - startLocalCanonical.x;
+            float dy = destLocalCanonical.y - startLocalCanonical.y;
+            if (std::abs(dx) > 0.01f || std::abs(dy) > 0.01f)
+                facingAngle = std::atan2(-dy, dx);
+        }
+
+        setTransportAttachment(moverGuid, entity->getType(), transportGuid, destLocalCanonical, false, 0.0f);
+        entity->startMoveTo(destWorld.x, destWorld.y, destWorld.z, facingAngle, duration / 1000.0f);
+
+        if (entity->getType() == ObjectType::UNIT && creatureMoveCallback_)
+            creatureMoveCallback_(moverGuid, destWorld.x, destWorld.y, destWorld.z, duration);
+
+        LOG_DEBUG("SMSG_MONSTER_MOVE_TRANSPORT: mover=0x", std::hex, moverGuid,
+                  " transport=0x", transportGuid, std::dec,
+                  " dur=", duration, "ms dest=(", destWorld.x, ",", destWorld.y, ",", destWorld.z, ")");
+    } else {
+        glm::vec3 startWorld = transportManager_->getPlayerWorldPosition(transportGuid, startLocalCanonical);
+        setTransportAttachment(moverGuid, entity->getType(), transportGuid, startLocalCanonical, false, 0.0f);
+        entity->setPosition(startWorld.x, startWorld.y, startWorld.z, facingAngle);
+        if (entity->getType() == ObjectType::UNIT && creatureMoveCallback_)
+            creatureMoveCallback_(moverGuid, startWorld.x, startWorld.y, startWorld.z, 0);
+    }
 }
 
 void GameHandler::handleAttackerStateUpdate(network::Packet& packet) {
