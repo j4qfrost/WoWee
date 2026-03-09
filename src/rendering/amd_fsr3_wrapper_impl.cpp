@@ -56,6 +56,39 @@ bool hasExtension(const std::vector<VkExtensionProperties>& extensions, const ch
     }
     return false;
 }
+
+bool hasExternalImageInteropSupport(VkPhysicalDevice physicalDevice, VkFormat format) {
+    if (!physicalDevice || format == VK_FORMAT_UNDEFINED) return false;
+
+    VkPhysicalDeviceExternalImageFormatInfo externalInfo{};
+    externalInfo.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTERNAL_IMAGE_FORMAT_INFO;
+    externalInfo.handleType = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_WIN32_BIT;
+
+    VkPhysicalDeviceImageFormatInfo2 imageInfo{};
+    imageInfo.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_IMAGE_FORMAT_INFO_2;
+    imageInfo.format = format;
+    imageInfo.type = VK_IMAGE_TYPE_2D;
+    imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
+    imageInfo.usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT |
+                      VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+    imageInfo.flags = 0;
+    imageInfo.pNext = &externalInfo;
+
+    VkExternalImageFormatProperties externalProps{};
+    externalProps.sType = VK_STRUCTURE_TYPE_EXTERNAL_IMAGE_FORMAT_PROPERTIES;
+
+    VkImageFormatProperties2 imageProps{};
+    imageProps.sType = VK_STRUCTURE_TYPE_IMAGE_FORMAT_PROPERTIES_2;
+    imageProps.pNext = &externalProps;
+
+    const VkResult res = vkGetPhysicalDeviceImageFormatProperties2(physicalDevice, &imageInfo, &imageProps);
+    if (res != VK_SUCCESS) return false;
+
+    const VkExternalMemoryFeatureFlags features = externalProps.externalMemoryProperties.externalMemoryFeatures;
+    const bool exportable = (features & VK_EXTERNAL_MEMORY_FEATURE_EXPORTABLE_BIT) != 0;
+    const bool importable = (features & VK_EXTERNAL_MEMORY_FEATURE_IMPORTABLE_BIT) != 0;
+    return exportable && importable;
+}
 #endif
 
 enum class WrapperBackend {
@@ -315,6 +348,9 @@ bool runDx12BridgePreflight(const WoweeFsr3WrapperInitDesc* initDesc, std::strin
                     if (!hasExtension(extensions, extName)) {
                         missing.emplace_back(extName);
                     }
+                }
+                if (!hasExternalImageInteropSupport(initDesc->physicalDevice, initDesc->colorFormat)) {
+                    missing.emplace_back("external memory export/import support for swap/upscale format");
                 }
             }
         }
