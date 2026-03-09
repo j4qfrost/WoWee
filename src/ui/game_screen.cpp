@@ -324,9 +324,16 @@ void GameScreen::render(game::GameHandler& gameHandler) {
             static const float fsrScales[] = { 0.77f, 0.67f, 0.59f, 0.50f };
             renderer->setFSRQuality(fsrScales[pendingFSRQuality]);
             renderer->setFSRSharpness(pendingFSRSharpness);
-            renderer->setFSREnabled(pendingUpscalingMode == 1);
-            renderer->setFSR2Enabled(pendingUpscalingMode == 2);
-            fsrSettingsApplied_ = true;
+            // FSR2 can stall on some drivers during world-load transitions.
+            // Defer persisted FSR2 activation until fully in world.
+            if (pendingUpscalingMode == 2 && gameHandler.getState() != game::WorldState::IN_WORLD) {
+                renderer->setFSREnabled(false);
+                renderer->setFSR2Enabled(false);
+            } else {
+                renderer->setFSREnabled(pendingUpscalingMode == 1);
+                renderer->setFSR2Enabled(pendingUpscalingMode == 2);
+                fsrSettingsApplied_ = true;
+            }
         }
     }
 
