@@ -125,6 +125,19 @@ jobs:
       - name: Build
         run: cmake --build build --parallel $(nproc)
 
+      - name: Verify FSR3 wrapper bridge exports (Linux)
+        run: |
+          set -euo pipefail
+          WRAPPER_SO="build/bin/libffx_fsr3_vk_wrapper.so"
+          if [ -f "$WRAPPER_SO" ]; then
+            nm -D "$WRAPPER_SO" | grep -q 'wowee_fsr3_wrapper_get_backend'
+            nm -D "$WRAPPER_SO" | grep -q 'wowee_fsr3_wrapper_get_capabilities'
+            nm -D "$WRAPPER_SO" | grep -q 'wowee_fsr3_wrapper_dispatch_upscale'
+          else
+            echo "Wrapper shared library not found at $WRAPPER_SO"
+            exit 1
+          fi
+
       - name: Package (DEB)
         run: cd build && cpack -G DEB
 
