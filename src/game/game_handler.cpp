@@ -1633,6 +1633,27 @@ void GameHandler::handlePacket(network::Packet& packet) {
             LOG_DEBUG("SMSG_UPDATE_WORLD_STATE: field=", field, " value=", value);
             break;
         }
+        case Opcode::SMSG_WORLD_STATE_UI_TIMER_UPDATE: {
+            // uint32 time (server unix timestamp) — used to sync UI timers (arena, BG)
+            if (packet.getSize() - packet.getReadPos() >= 4) {
+                uint32_t serverTime = packet.readUInt32();
+                LOG_DEBUG("SMSG_WORLD_STATE_UI_TIMER_UPDATE: serverTime=", serverTime);
+            }
+            break;
+        }
+        case Opcode::SMSG_PVP_CREDIT: {
+            // uint32 honorPoints + uint64 victimGuid + uint32 victimRank
+            if (packet.getSize() - packet.getReadPos() >= 16) {
+                uint32_t honor      = packet.readUInt32();
+                uint64_t victimGuid = packet.readUInt64();
+                uint32_t rank       = packet.readUInt32();
+                LOG_INFO("SMSG_PVP_CREDIT: honor=", honor, " victim=0x", std::hex, victimGuid,
+                         std::dec, " rank=", rank);
+                std::string msg = "You gain " + std::to_string(honor) + " honor points.";
+                addSystemChatMessage(msg);
+            }
+            break;
+        }
 
         // ---- Combo points ----
         case Opcode::SMSG_UPDATE_COMBO_POINTS: {
@@ -1983,8 +2004,18 @@ void GameHandler::handlePacket(network::Packet& packet) {
             handleMonsterMoveTransport(packet);
             break;
         case Opcode::SMSG_SPLINE_MOVE_SET_WALK_MODE:
-        case Opcode::SMSG_SPLINE_MOVE_SET_RUN_MODE: {
-            // Minimal parse: PackedGuid
+        case Opcode::SMSG_SPLINE_MOVE_SET_RUN_MODE:
+        case Opcode::SMSG_SPLINE_MOVE_FEATHER_FALL:
+        case Opcode::SMSG_SPLINE_MOVE_GRAVITY_DISABLE:
+        case Opcode::SMSG_SPLINE_MOVE_GRAVITY_ENABLE:
+        case Opcode::SMSG_SPLINE_MOVE_LAND_WALK:
+        case Opcode::SMSG_SPLINE_MOVE_NORMAL_FALL:
+        case Opcode::SMSG_SPLINE_MOVE_ROOT:
+        case Opcode::SMSG_SPLINE_MOVE_SET_FLYING:
+        case Opcode::SMSG_SPLINE_MOVE_SET_HOVER:
+        case Opcode::SMSG_SPLINE_MOVE_START_SWIM:
+        case Opcode::SMSG_SPLINE_MOVE_STOP_SWIM: {
+            // Minimal parse: PackedGuid only — entity state flag change.
             if (packet.getSize() - packet.getReadPos() >= 1) {
                 (void)UpdateObjectParser::readPackedGuid(packet);
             }
@@ -2386,6 +2417,19 @@ void GameHandler::handlePacket(network::Packet& packet) {
             break;
         case Opcode::SMSG_GROUP_LIST:
             handleGroupList(packet);
+            break;
+        case Opcode::SMSG_GROUP_DESTROYED:
+            // The group was disbanded; clear all party state.
+            partyData.members.clear();
+            partyData.memberCount = 0;
+            partyData.leaderGuid = 0;
+            addSystemChatMessage("Your party has been disbanded.");
+            LOG_INFO("SMSG_GROUP_DESTROYED: party cleared");
+            break;
+        case Opcode::SMSG_GROUP_CANCEL:
+            // Group invite was cancelled before being accepted.
+            addSystemChatMessage("Group invite cancelled.");
+            LOG_DEBUG("SMSG_GROUP_CANCEL");
             break;
         case Opcode::SMSG_GROUP_UNINVITE:
             handleGroupUninvite(packet);
