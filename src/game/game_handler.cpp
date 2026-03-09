@@ -4505,9 +4505,22 @@ void GameHandler::handlePacket(network::Packet& packet) {
         }
 
         // ---- Realm split ----
-        case Opcode::SMSG_REALM_SPLIT:
+        case Opcode::SMSG_REALM_SPLIT: {
+            // uint32 splitType + uint32 deferTime + string realmName
+            // Client must respond with CMSG_REALM_SPLIT to avoid session timeout on some servers.
+            uint32_t splitType = 0;
+            if (packet.getSize() - packet.getReadPos() >= 4)
+                splitType = packet.readUInt32();
             packet.setReadPos(packet.getSize());
+            if (socket) {
+                network::Packet resp(wireOpcode(Opcode::CMSG_REALM_SPLIT));
+                resp.writeUInt32(splitType);
+                resp.writeString("3.3.5");
+                socket->send(resp);
+                LOG_DEBUG("SMSG_REALM_SPLIT splitType=", splitType, " — sent CMSG_REALM_SPLIT ack");
+            }
             break;
+        }
 
         // ---- Real group update (status flags) ----
         case Opcode::SMSG_REAL_GROUP_UPDATE:
