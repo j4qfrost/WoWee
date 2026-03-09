@@ -3046,6 +3046,63 @@ void GameHandler::handlePacket(network::Packet& packet) {
         }
         case Opcode::MSG_RAID_TARGET_UPDATE:
             break;
+        case Opcode::SMSG_BUY_ITEM: {
+            // uint64 vendorGuid + uint32 vendorSlot + int32 newCount + uint32 itemCount
+            // Confirms a successful CMSG_BUY_ITEM. The inventory update arrives via SMSG_UPDATE_OBJECT.
+            if (packet.getSize() - packet.getReadPos() >= 20) {
+                uint64_t vendorGuid = packet.readUInt64();
+                uint32_t vendorSlot = packet.readUInt32();
+                int32_t  newCount   = static_cast<int32_t>(packet.readUInt32());
+                uint32_t itemCount  = packet.readUInt32();
+                LOG_DEBUG("SMSG_BUY_ITEM: vendorGuid=0x", std::hex, vendorGuid, std::dec,
+                          " slot=", vendorSlot, " newCount=", newCount, " bought=", itemCount);
+                pendingBuyItemId_   = 0;
+                pendingBuyItemSlot_ = 0;
+            }
+            break;
+        }
+        case Opcode::SMSG_CRITERIA_UPDATE: {
+            // uint32 criteriaId + uint64 progress + uint32 elapsedTime + uint32 creationTime
+            // Achievement criteria progress (informational — no criteria UI yet).
+            if (packet.getSize() - packet.getReadPos() >= 20) {
+                uint32_t criteriaId    = packet.readUInt32();
+                uint64_t progress      = packet.readUInt64();
+                /*uint32_t elapsedTime =*/ packet.readUInt32();
+                /*uint32_t createTime  =*/ packet.readUInt32();
+                LOG_DEBUG("SMSG_CRITERIA_UPDATE: id=", criteriaId, " progress=", progress);
+            }
+            break;
+        }
+        case Opcode::SMSG_BARBER_SHOP_RESULT: {
+            // uint32 result (0 = success, 1 = no money, 2 = not barber, 3 = sitting)
+            if (packet.getSize() - packet.getReadPos() >= 4) {
+                uint32_t result = packet.readUInt32();
+                if (result == 0) {
+                    addSystemChatMessage("Hairstyle changed.");
+                } else {
+                    const char* msg = (result == 1) ? "Not enough money for new hairstyle."
+                                    : (result == 2) ? "You are not at a barber shop."
+                                    : (result == 3) ? "You must stand up to use the barber shop."
+                                    : "Barber shop unavailable.";
+                    addSystemChatMessage(msg);
+                }
+                LOG_DEBUG("SMSG_BARBER_SHOP_RESULT: result=", result);
+            }
+            break;
+        }
+        case Opcode::SMSG_OVERRIDE_LIGHT: {
+            // uint32 currentZoneLightId + uint32 overrideLightId + uint32 transitionMs
+            if (packet.getSize() - packet.getReadPos() >= 12) {
+                uint32_t zoneLightId     = packet.readUInt32();
+                uint32_t overrideLightId = packet.readUInt32();
+                uint32_t transitionMs    = packet.readUInt32();
+                overrideLightId_      = overrideLightId;
+                overrideLightTransMs_ = transitionMs;
+                LOG_DEBUG("SMSG_OVERRIDE_LIGHT: zone=", zoneLightId,
+                          " override=", overrideLightId, " transition=", transitionMs, "ms");
+            }
+            break;
+        }
         case Opcode::SMSG_WEATHER: {
             // Format: uint32 weatherType, float intensity, uint8 isAbrupt
             if (packet.getSize() - packet.getReadPos() >= 9) {

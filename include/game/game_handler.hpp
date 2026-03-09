@@ -555,6 +555,8 @@ public:
     float getWeatherIntensity() const { return weatherIntensity_; }
     bool isRaining() const { return weatherType_ == 1 && weatherIntensity_ > 0.05f; }
     bool isSnowing() const { return weatherType_ == 2 && weatherIntensity_ > 0.05f; }
+    uint32_t getOverrideLightId() const { return overrideLightId_; }
+    uint32_t getOverrideLightTransMs() const { return overrideLightTransMs_; }
 
     // Player skills
     const std::map<uint32_t, PlayerSkill>& getPlayerSkills() const { return playerSkills_; }
@@ -2004,6 +2006,10 @@ private:
     // ---- Weather state (SMSG_WEATHER) ----
     uint32_t weatherType_ = 0;       // 0=clear, 1=rain, 2=snow, 3=storm
     float weatherIntensity_ = 0.0f;  // 0.0 to 1.0
+
+    // ---- Light override (SMSG_OVERRIDE_LIGHT) ----
+    uint32_t overrideLightId_ = 0;      // 0 = no override
+    uint32_t overrideLightTransMs_ = 0;
 
     // ---- Player skills ----
     std::map<uint32_t, PlayerSkill> playerSkills_;
