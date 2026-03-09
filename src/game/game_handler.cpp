@@ -1390,6 +1390,12 @@ void GameHandler::handlePacket(network::Packet& packet) {
                 handleMessageChat(packet);
             }
             break;
+        case Opcode::SMSG_GM_MESSAGECHAT:
+            // GM → player message: same wire format as SMSG_MESSAGECHAT
+            if (state == WorldState::IN_WORLD) {
+                handleMessageChat(packet);
+            }
+            break;
 
         case Opcode::SMSG_TEXT_EMOTE:
             if (state == WorldState::IN_WORLD) {
@@ -1885,6 +1891,102 @@ void GameHandler::handlePacket(network::Packet& packet) {
             LOG_DEBUG("SMSG_GOSSIP_POI: x=", poiX, " y=", poiY, " icon=", icon);
             break;
         }
+
+        // ---- Character service results ----
+        case Opcode::SMSG_CHAR_RENAME: {
+            // uint32 result (0=success) + uint64 guid + string newName
+            if (packet.getSize() - packet.getReadPos() >= 13) {
+                uint32_t result = packet.readUInt32();
+                /*uint64_t guid =*/ packet.readUInt64();
+                std::string newName = packet.readString();
+                if (result == 0) {
+                    addSystemChatMessage("Character name changed to: " + newName);
+                } else {
+                    addSystemChatMessage("Character rename failed (error " + std::to_string(result) + ").");
+                }
+                LOG_INFO("SMSG_CHAR_RENAME: result=", result, " newName=", newName);
+            }
+            break;
+        }
+        case Opcode::SMSG_BINDZONEREPLY: {
+            // uint32 result (0=success, 1=too far)
+            if (packet.getSize() - packet.getReadPos() >= 4) {
+                uint32_t result = packet.readUInt32();
+                if (result == 0) {
+                    addSystemChatMessage("Your home is now set to this location.");
+                } else {
+                    addSystemChatMessage("You are too far from the innkeeper.");
+                }
+            }
+            break;
+        }
+        case Opcode::SMSG_CHANGEPLAYER_DIFFICULTY_RESULT: {
+            // uint32 result
+            if (packet.getSize() - packet.getReadPos() >= 4) {
+                uint32_t result = packet.readUInt32();
+                if (result == 0) {
+                    addSystemChatMessage("Difficulty changed.");
+                } else {
+                    static const char* reasons[] = {
+                        "", "Error", "Too many members", "Already in dungeon",
+                        "You are in a battleground", "Raid not allowed in heroic",
+                        "You must be in a raid group", "Player not in group"
+                    };
+                    const char* msg = (result < 8) ? reasons[result] : "Difficulty change failed.";
+                    addSystemChatMessage(std::string("Cannot change difficulty: ") + msg);
+                }
+            }
+            break;
+        }
+        case Opcode::SMSG_CORPSE_NOT_IN_INSTANCE:
+            addSystemChatMessage("Your corpse is outside this instance. Release spirit to retrieve it.");
+            break;
+        case Opcode::SMSG_CROSSED_INEBRIATION_THRESHOLD: {
+            // uint64 playerGuid + uint32 threshold
+            if (packet.getSize() - packet.getReadPos() >= 12) {
+                uint64_t guid = packet.readUInt64();
+                uint32_t threshold = packet.readUInt32();
+                if (guid == playerGuid && threshold > 0) {
+                    addSystemChatMessage("You feel rather drunk.");
+                }
+                LOG_DEBUG("SMSG_CROSSED_INEBRIATION_THRESHOLD: guid=0x", std::hex, guid,
+                          std::dec, " threshold=", threshold);
+            }
+            break;
+        }
+        case Opcode::SMSG_CLEAR_FAR_SIGHT_IMMEDIATE:
+            // Far sight cancelled; viewport returns to player camera
+            LOG_DEBUG("SMSG_CLEAR_FAR_SIGHT_IMMEDIATE");
+            break;
+        case Opcode::SMSG_COMBAT_EVENT_FAILED:
+            // Combat event could not be executed (e.g. invalid target for special ability)
+            packet.setReadPos(packet.getSize());
+            break;
+        case Opcode::SMSG_FORCE_ANIM: {
+            // packed_guid + uint32 animId — force entity to play animation
+            if (packet.getSize() - packet.getReadPos() >= 1) {
+                (void)UpdateObjectParser::readPackedGuid(packet);
+                if (packet.getSize() - packet.getReadPos() >= 4) {
+                    /*uint32_t animId =*/ packet.readUInt32();
+                }
+            }
+            break;
+        }
+        case Opcode::SMSG_GAMEOBJECT_DESPAWN_ANIM:
+        case Opcode::SMSG_GAMEOBJECT_RESET_STATE:
+        case Opcode::SMSG_FLIGHT_SPLINE_SYNC:
+        case Opcode::SMSG_FORCE_DISPLAY_UPDATE:
+        case Opcode::SMSG_FORCE_SEND_QUEUED_PACKETS:
+        case Opcode::SMSG_FORCE_SET_VEHICLE_REC_ID:
+        case Opcode::SMSG_CONVERT_RUNE:
+        case Opcode::SMSG_CORPSE_MAP_POSITION_QUERY_RESPONSE:
+        case Opcode::SMSG_DAMAGE_CALC_LOG:
+        case Opcode::SMSG_DYNAMIC_DROP_ROLL_RESULT:
+        case Opcode::SMSG_DESTRUCTIBLE_BUILDING_DAMAGE:
+        case Opcode::SMSG_FORCED_DEATH_UPDATE:
+            // Consume — handled by broader object update or not yet implemented
+            packet.setReadPos(packet.getSize());
+            break;
 
         // ---- Zone defense messages ----
         case Opcode::SMSG_DEFENSE_MESSAGE: {
