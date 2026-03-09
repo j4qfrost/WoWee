@@ -74,7 +74,6 @@ private:
 
     void loadVoiceSounds();
     bool loadSound(const std::string& path, VoiceSample& sample);
-    VoiceType detectVoiceType(uint32_t creatureEntry) const;
     void playSound(uint64_t npcGuid, VoiceType voiceType, SoundCategory category, const glm::vec3& position);
 
     pipeline::AssetManager* assetManager_ = nullptr;

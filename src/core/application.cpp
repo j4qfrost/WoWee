@@ -2109,10 +2109,10 @@ void Application::setupUICallbacks() {
         int32_t idx = dbc->findRecordById(soundId);
         if (idx < 0) return;
 
-        // SoundEntries.dbc (WotLK): fields 2-11 = Name[0..9], field 22 = DirectoryBase
+        // SoundEntries.dbc (WotLK): field 2 = Name (label), fields 3-12 = File[0..9], field 23 = DirectoryBase
         const uint32_t row = static_cast<uint32_t>(idx);
-        std::string dir = dbc->getString(row, 22);
-        for (uint32_t f = 2; f <= 11; ++f) {
+        std::string dir = dbc->getString(row, 23);
+        for (uint32_t f = 3; f <= 12; ++f) {
             std::string name = dbc->getString(row, f);
             if (name.empty()) continue;
             std::string path = dir.empty() ? name : dir + "\\" + name;

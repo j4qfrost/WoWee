@@ -373,12 +373,5 @@ void NpcVoiceManager::playFlee(uint64_t npcGuid, VoiceType voiceType, const glm:
     playSound(npcGuid, voiceType, SoundCategory::FLEE, position);
 }
 
-VoiceType NpcVoiceManager::detectVoiceType(uint32_t creatureEntry) const {
-    // TODO: Use CreatureTemplate.dbc or other data to map creature entry to voice type
-    // For now, return generic
-    (void)creatureEntry;
-    return VoiceType::GENERIC;
-}
-
 } // namespace audio
 } // namespace wowee
