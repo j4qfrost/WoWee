@@ -2044,9 +2044,27 @@ void GameHandler::handlePacket(network::Packet& packet) {
         }
         case Opcode::SMSG_GAMETIME_SET:
         case Opcode::SMSG_GAMETIME_UPDATE:
-        case Opcode::SMSG_GAMETIMEBIAS_SET:
+            // Server time correction: uint32 gameTimePacked (seconds since epoch)
+            if (packet.getSize() - packet.getReadPos() >= 4) {
+                uint32_t gameTimePacked = packet.readUInt32();
+                gameTime_ = static_cast<float>(gameTimePacked);
+                LOG_DEBUG("Server game time update: ", gameTime_, "s");
+            }
+            packet.setReadPos(packet.getSize());
+            break;
         case Opcode::SMSG_GAMESPEED_SET:
-            // Server-side time/speed synchronization — consume without processing
+            // Server speed correction: uint32 gameTimePacked + float timeSpeed
+            if (packet.getSize() - packet.getReadPos() >= 8) {
+                uint32_t gameTimePacked = packet.readUInt32();
+                float timeSpeed = packet.readFloat();
+                gameTime_ = static_cast<float>(gameTimePacked);
+                timeSpeed_ = timeSpeed;
+                LOG_DEBUG("Server game speed update: time=", gameTime_, " speed=", timeSpeed_);
+            }
+            packet.setReadPos(packet.getSize());
+            break;
+        case Opcode::SMSG_GAMETIMEBIAS_SET:
+            // Time bias — consume without processing
             packet.setReadPos(packet.getSize());
             break;
         case Opcode::SMSG_ACHIEVEMENT_DELETED:
