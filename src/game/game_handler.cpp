@@ -5540,9 +5540,15 @@ void GameHandler::handlePacket(network::Packet& packet) {
         case Opcode::SMSG_MOVE_SET_CAN_TRANSITION_BETWEEN_SWIM_AND_FLY:
         case Opcode::SMSG_MOVE_UNSET_CAN_TRANSITION_BETWEEN_SWIM_AND_FLY:
         case Opcode::SMSG_MOVE_SET_COLLISION_HGT:
-        case Opcode::SMSG_MOVE_SET_FLIGHT:
-        case Opcode::SMSG_MOVE_UNSET_FLIGHT:
             packet.setReadPos(packet.getSize());
+            break;
+        case Opcode::SMSG_MOVE_SET_FLIGHT:
+            handleForceMoveFlagChange(packet, "SET_FLIGHT", Opcode::CMSG_MOVE_FLIGHT_ACK,
+                static_cast<uint32_t>(MovementFlags::FLYING), true);
+            break;
+        case Opcode::SMSG_MOVE_UNSET_FLIGHT:
+            handleForceMoveFlagChange(packet, "UNSET_FLIGHT", Opcode::CMSG_MOVE_FLIGHT_ACK,
+                static_cast<uint32_t>(MovementFlags::FLYING), false);
             break;
 
         default:
