@@ -2459,7 +2459,8 @@ void GameHandler::handlePacket(network::Packet& packet) {
                 static_cast<uint32_t>(MovementFlags::FEATHER_FALL), true);
             break;
         case Opcode::SMSG_MOVE_WATER_WALK:
-            handleForceMoveFlagChange(packet, "WATER_WALK", Opcode::CMSG_MOVE_WATER_WALK_ACK, 0, true);
+            handleForceMoveFlagChange(packet, "WATER_WALK", Opcode::CMSG_MOVE_WATER_WALK_ACK,
+                static_cast<uint32_t>(MovementFlags::WATER_WALK), true);
             break;
         case Opcode::SMSG_MOVE_SET_HOVER:
             handleForceMoveFlagChange(packet, "SET_HOVER", Opcode::CMSG_MOVE_HOVER_ACK,
@@ -5588,7 +5589,8 @@ void GameHandler::handlePacket(network::Packet& packet) {
                 static_cast<uint32_t>(MovementFlags::LEVITATING), false);
             break;
         case Opcode::SMSG_MOVE_LAND_WALK:
-            handleForceMoveFlagChange(packet, "LAND_WALK", Opcode::CMSG_MOVE_WATER_WALK_ACK, 0, false);
+            handleForceMoveFlagChange(packet, "LAND_WALK", Opcode::CMSG_MOVE_WATER_WALK_ACK,
+                static_cast<uint32_t>(MovementFlags::WATER_WALK), false);
             break;
         case Opcode::SMSG_MOVE_NORMAL_FALL:
             handleForceMoveFlagChange(packet, "NORMAL_FALL", Opcode::CMSG_MOVE_FEATHER_FALL_ACK,

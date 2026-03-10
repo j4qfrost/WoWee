@@ -98,6 +98,7 @@ public:
     bool isMovementRooted() const { return movementRooted_; }
     void setGravityDisabled(bool disabled) { gravityDisabled_ = disabled; }
     void setFeatherFallActive(bool active) { featherFallActive_ = active; }
+    void setWaterWalkActive(bool active) { waterWalkActive_ = active; }
     void setMounted(bool m) { mounted_ = m; }
     void setMountHeightOffset(float offset) { mountHeightOffset_ = offset; }
     void setExternalFollow(bool enabled) { externalFollow_ = enabled; }
@@ -282,6 +283,8 @@ private:
     bool gravityDisabled_ = false;
     // Server-driven feather fall: cap downward velocity to slow-fall terminal.
     bool featherFallActive_ = false;
+    // Server-driven water walk: treat water surface as ground (don't swim).
+    bool waterWalkActive_ = false;
     bool mounted_ = false;
     float mountHeightOffset_ = 0.0f;
     bool externalMoving_ = false;

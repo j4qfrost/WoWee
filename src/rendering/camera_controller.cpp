@@ -410,7 +410,14 @@ void CameraController::update(float deltaTime) {
             constexpr float MAX_SWIM_DEPTH_FROM_SURFACE = 12.0f;
             constexpr float MIN_SWIM_WATER_DEPTH = 1.0f;
             bool inWater = false;
-            if (waterH && targetPos.z < *waterH) {
+            // Water Walk: treat water surface as ground — player walks on top, not through.
+            if (waterWalkActive_ && waterH && targetPos.z >= *waterH - 0.5f) {
+                // Clamp to water surface so the player stands on it
+                targetPos.z = *waterH;
+                verticalVelocity = 0.0f;
+                grounded = true;
+                inWater = false;
+            } else if (waterH && targetPos.z < *waterH) {
                 std::optional<uint16_t> waterType;
                 if (waterRenderer) {
                     waterType = waterRenderer->getWaterTypeAt(targetPos.x, targetPos.y);

@@ -1163,6 +1163,9 @@ public:
     bool isFeatherFalling() const {
         return (movementInfo.flags & static_cast<uint32_t>(MovementFlags::FEATHER_FALL)) != 0;
     }
+    bool isWaterWalking() const {
+        return (movementInfo.flags & static_cast<uint32_t>(MovementFlags::WATER_WALK)) != 0;
+    }
     void dismount();
 
     // Taxi / Flight Paths
