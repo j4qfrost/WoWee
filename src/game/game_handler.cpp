@@ -12771,11 +12771,9 @@ void GameHandler::handleInitialSpells(network::Packet& packet) {
 
     knownSpells = {data.spellIds.begin(), data.spellIds.end()};
 
-    // Debug: check if specific spells are in initial spells
-    bool has527 = knownSpells.count(527u);
-    bool has988 = knownSpells.count(988u);
-    bool has1180 = knownSpells.count(1180u);
-    LOG_INFO("Initial spells include: 527=", has527, " 988=", has988, " 1180=", has1180);
+    LOG_INFO("SMSG_INITIAL_SPELLS: ", knownSpells.size(), " spells");
+    LOG_DEBUG("Initial spells include: 527=", knownSpells.count(527u),
+              " 988=", knownSpells.count(988u), " 1180=", knownSpells.count(1180u));
 
     // Ensure Attack (6603) and Hearthstone (8690) are always present
     knownSpells.insert(6603u);
@@ -15011,29 +15009,24 @@ void GameHandler::handleTrainerList(network::Packet& packet) {
     trainerWindowOpen_ = true;
     gossipWindowOpen = false;
 
-    // Debug: log known spells
-    LOG_INFO("Known spells count: ", knownSpells.size());
+    LOG_INFO("Trainer list: ", currentTrainerList_.spells.size(), " spells");
+    LOG_DEBUG("Known spells count: ", knownSpells.size());
     if (knownSpells.size() <= 50) {
         std::string spellList;
         for (uint32_t id : knownSpells) {
             if (!spellList.empty()) spellList += ", ";
             spellList += std::to_string(id);
         }
-        LOG_INFO("Known spells: ", spellList);
+        LOG_DEBUG("Known spells: ", spellList);
     }
 
-    // Check if specific prerequisite spells are known
-    bool has527 = knownSpells.count(527u);
-    bool has25312 = knownSpells.count(25312u);
-    LOG_INFO("Prerequisite check: 527=", has527, " 25312=", has25312);
-
-    // Debug: log first few trainer spells to see their state
-    LOG_INFO("Trainer spells received: ", currentTrainerList_.spells.size(), " spells");
+    LOG_DEBUG("Prerequisite check: 527=", knownSpells.count(527u),
+              " 25312=", knownSpells.count(25312u));
     for (size_t i = 0; i < std::min(size_t(5), currentTrainerList_.spells.size()); ++i) {
         const auto& s = currentTrainerList_.spells[i];
-        LOG_INFO("  Spell[", i, "]: id=", s.spellId, " state=", (int)s.state,
-                 " cost=", s.spellCost, " reqLvl=", (int)s.reqLevel,
-                 " chain=(", s.chainNode1, ",", s.chainNode2, ",", s.chainNode3, ")");
+        LOG_DEBUG("  Spell[", i, "]: id=", s.spellId, " state=", (int)s.state,
+                  " cost=", s.spellCost, " reqLvl=", (int)s.reqLevel,
+                  " chain=(", s.chainNode1, ",", s.chainNode2, ",", s.chainNode3, ")");
     }
 
 
