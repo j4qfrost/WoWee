@@ -288,7 +288,9 @@ Renderer::~Renderer() = default;
 bool Renderer::createPerFrameResources() {
     VkDevice device = vkCtx->getDevice();
 
-    // --- Create shadow depth image ---
+    // --- Create per-frame shadow depth images (one per in-flight frame) ---
+    // Each frame slot has its own depth image so that frame N's shadow read and
+    // frame N+1's shadow write cannot race on the same image.
     VkImageCreateInfo imgCI{};
     imgCI.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
     imgCI.imageType = VK_IMAGE_TYPE_2D;
@@ -301,26 +303,30 @@ bool Renderer::createPerFrameResources() {
     imgCI.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
     VmaAllocationCreateInfo imgAllocCI{};
     imgAllocCI.usage = VMA_MEMORY_USAGE_GPU_ONLY;
-    if (vmaCreateImage(vkCtx->getAllocator(), &imgCI, &imgAllocCI,
-            &shadowDepthImage, &shadowDepthAlloc, nullptr) != VK_SUCCESS) {
-        LOG_ERROR("Failed to create shadow depth image");
-        return false;
+    for (uint32_t i = 0; i < MAX_FRAMES; i++) {
+        if (vmaCreateImage(vkCtx->getAllocator(), &imgCI, &imgAllocCI,
+                &shadowDepthImage[i], &shadowDepthAlloc[i], nullptr) != VK_SUCCESS) {
+            LOG_ERROR("Failed to create shadow depth image [", i, "]");
+            return false;
+        }
+        shadowDepthLayout_[i] = VK_IMAGE_LAYOUT_UNDEFINED;
     }
-    shadowDepthLayout_ = VK_IMAGE_LAYOUT_UNDEFINED;
 
-    // --- Create shadow depth image view ---
+    // --- Create per-frame shadow depth image views ---
     VkImageViewCreateInfo viewCI{};
     viewCI.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-    viewCI.image = shadowDepthImage;
     viewCI.viewType = VK_IMAGE_VIEW_TYPE_2D;
     viewCI.format = VK_FORMAT_D32_SFLOAT;
     viewCI.subresourceRange = {VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, 1};
-    if (vkCreateImageView(device, &viewCI, nullptr, &shadowDepthView) != VK_SUCCESS) {
-        LOG_ERROR("Failed to create shadow depth image view");
-        return false;
+    for (uint32_t i = 0; i < MAX_FRAMES; i++) {
+        viewCI.image = shadowDepthImage[i];
+        if (vkCreateImageView(device, &viewCI, nullptr, &shadowDepthView[i]) != VK_SUCCESS) {
+            LOG_ERROR("Failed to create shadow depth image view [", i, "]");
+            return false;
+        }
     }
 
-    // --- Create shadow sampler ---
+    // --- Create shadow sampler (shared — read-only, no per-frame needed) ---
     VkSamplerCreateInfo sampCI{};
     sampCI.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
     sampCI.magFilter = VK_FILTER_LINEAR;
@@ -377,18 +383,20 @@ bool Renderer::createPerFrameResources() {
         return false;
     }
 
-    // --- Create shadow framebuffer ---
+    // --- Create per-frame shadow framebuffers ---
     VkFramebufferCreateInfo fbCI{};
     fbCI.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
     fbCI.renderPass = shadowRenderPass;
     fbCI.attachmentCount = 1;
-    fbCI.pAttachments = &shadowDepthView;
     fbCI.width = SHADOW_MAP_SIZE;
     fbCI.height = SHADOW_MAP_SIZE;
     fbCI.layers = 1;
-    if (vkCreateFramebuffer(device, &fbCI, nullptr, &shadowFramebuffer) != VK_SUCCESS) {
-        LOG_ERROR("Failed to create shadow framebuffer");
-        return false;
+    for (uint32_t i = 0; i < MAX_FRAMES; i++) {
+        fbCI.pAttachments = &shadowDepthView[i];
+        if (vkCreateFramebuffer(device, &fbCI, nullptr, &shadowFramebuffer[i]) != VK_SUCCESS) {
+            LOG_ERROR("Failed to create shadow framebuffer [", i, "]");
+            return false;
+        }
     }
 
     // --- Create descriptor set layout for set 0 (per-frame UBO + shadow sampler) ---
@@ -470,7 +478,7 @@ bool Renderer::createPerFrameResources() {
 
         VkDescriptorImageInfo shadowImgInfo{};
         shadowImgInfo.sampler = shadowSampler;
-        shadowImgInfo.imageView = shadowDepthView;
+        shadowImgInfo.imageView = shadowDepthView[i];
         shadowImgInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
         VkWriteDescriptorSet writes[2]{};
@@ -527,7 +535,7 @@ bool Renderer::createPerFrameResources() {
 
         VkDescriptorImageInfo shadowImgInfo{};
         shadowImgInfo.sampler = shadowSampler;
-        shadowImgInfo.imageView = shadowDepthView;
+        shadowImgInfo.imageView = shadowDepthView[0];  // reflection uses frame 0 shadow view
         shadowImgInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
         VkWriteDescriptorSet writes[2]{};
@@ -576,13 +584,15 @@ void Renderer::destroyPerFrameResources() {
         perFrameSetLayout = VK_NULL_HANDLE;
     }
 
-    // Destroy shadow resources
-    if (shadowFramebuffer) { vkDestroyFramebuffer(device, shadowFramebuffer, nullptr); shadowFramebuffer = VK_NULL_HANDLE; }
+    // Destroy per-frame shadow resources
+    for (uint32_t i = 0; i < MAX_FRAMES; i++) {
+        if (shadowFramebuffer[i]) { vkDestroyFramebuffer(device, shadowFramebuffer[i], nullptr); shadowFramebuffer[i] = VK_NULL_HANDLE; }
+        if (shadowDepthView[i]) { vkDestroyImageView(device, shadowDepthView[i], nullptr); shadowDepthView[i] = VK_NULL_HANDLE; }
+        if (shadowDepthImage[i]) { vmaDestroyImage(vkCtx->getAllocator(), shadowDepthImage[i], shadowDepthAlloc[i]); shadowDepthImage[i] = VK_NULL_HANDLE; shadowDepthAlloc[i] = VK_NULL_HANDLE; }
+        shadowDepthLayout_[i] = VK_IMAGE_LAYOUT_UNDEFINED;
+    }
     if (shadowRenderPass) { vkDestroyRenderPass(device, shadowRenderPass, nullptr); shadowRenderPass = VK_NULL_HANDLE; }
-    if (shadowDepthView) { vkDestroyImageView(device, shadowDepthView, nullptr); shadowDepthView = VK_NULL_HANDLE; }
-    if (shadowDepthImage) { vmaDestroyImage(vkCtx->getAllocator(), shadowDepthImage, shadowDepthAlloc); shadowDepthImage = VK_NULL_HANDLE; shadowDepthAlloc = VK_NULL_HANDLE; }
     if (shadowSampler) { vkDestroySampler(device, shadowSampler, nullptr); shadowSampler = VK_NULL_HANDLE; }
-    shadowDepthLayout_ = VK_IMAGE_LAYOUT_UNDEFINED;
 }
 
 void Renderer::updatePerFrameUBO() {
@@ -1088,7 +1098,7 @@ void Renderer::beginFrame() {
     }
 
     // Shadow pre-pass (before main render pass)
-    if (shadowsEnabled && shadowDepthImage != VK_NULL_HANDLE) {
+    if (shadowsEnabled && shadowDepthImage[0] != VK_NULL_HANDLE) {
         renderShadowPass();
     }
 
@@ -5669,7 +5679,7 @@ void Renderer::renderReflectionPass() {
 void Renderer::renderShadowPass() {
     static const bool skipShadows = (std::getenv("WOWEE_SKIP_SHADOWS") != nullptr);
     if (skipShadows) return;
-    if (!shadowsEnabled || shadowDepthImage == VK_NULL_HANDLE) return;
+    if (!shadowsEnabled || shadowDepthImage[0] == VK_NULL_HANDLE) return;
     if (currentCmd == VK_NULL_HANDLE) return;
 
     // Shadows render every frame — throttling causes visible flicker on player/NPCs
@@ -5686,21 +5696,21 @@ void Renderer::renderShadowPass() {
         ubo->shadowParams.y = 0.8f;
     }
 
-    // Barrier 1: transition shadow map into writable depth layout.
+    // Barrier 1: transition this frame's shadow map into writable depth layout.
     VkImageMemoryBarrier b1{};
     b1.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-    b1.oldLayout = shadowDepthLayout_;
+    b1.oldLayout = shadowDepthLayout_[frame];
     b1.newLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
     b1.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
     b1.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    b1.srcAccessMask = (shadowDepthLayout_ == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)
+    b1.srcAccessMask = (shadowDepthLayout_[frame] == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)
         ? VK_ACCESS_SHADER_READ_BIT
         : 0;
     b1.dstAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT |
                        VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
-    b1.image = shadowDepthImage;
+    b1.image = shadowDepthImage[frame];
     b1.subresourceRange = {VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, 1};
-    VkPipelineStageFlags srcStage = (shadowDepthLayout_ == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)
+    VkPipelineStageFlags srcStage = (shadowDepthLayout_[frame] == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)
         ? VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT
         : VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
     vkCmdPipelineBarrier(currentCmd,
@@ -5711,7 +5721,7 @@ void Renderer::renderShadowPass() {
     VkRenderPassBeginInfo rpInfo{};
     rpInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
     rpInfo.renderPass = shadowRenderPass;
-    rpInfo.framebuffer = shadowFramebuffer;
+    rpInfo.framebuffer = shadowFramebuffer[frame];
     rpInfo.renderArea = {{0, 0}, {SHADOW_MAP_SIZE, SHADOW_MAP_SIZE}};
     VkClearValue clear{};
     clear.depthStencil = {1.0f, 0};
@@ -5750,12 +5760,12 @@ void Renderer::renderShadowPass() {
     b2.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
     b2.srcAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
     b2.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-    b2.image = shadowDepthImage;
+    b2.image = shadowDepthImage[frame];
     b2.subresourceRange = {VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, 1};
     vkCmdPipelineBarrier(currentCmd,
         VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
         0, 0, nullptr, 0, nullptr, 1, &b2);
-    shadowDepthLayout_ = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    shadowDepthLayout_[frame] = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 }
 
 } // namespace rendering

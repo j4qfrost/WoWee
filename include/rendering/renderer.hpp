@@ -241,13 +241,17 @@ private:
     std::unique_ptr<game::ZoneManager> zoneManager;
     // Shadow mapping (Vulkan)
     static constexpr uint32_t SHADOW_MAP_SIZE = 4096;
-    VkImage shadowDepthImage = VK_NULL_HANDLE;
-    VmaAllocation shadowDepthAlloc = VK_NULL_HANDLE;
-    VkImageView shadowDepthView = VK_NULL_HANDLE;
+    // Per-frame shadow resources: each in-flight frame has its own depth image and
+    // framebuffer so that frame N's shadow read and frame N+1's shadow write don't
+    // race on the same image across concurrent GPU submissions.
+    // Array size must match MAX_FRAMES (= 2, defined in the private section below).
+    VkImage shadowDepthImage[2] = {};
+    VmaAllocation shadowDepthAlloc[2] = {};
+    VkImageView shadowDepthView[2] = {};
     VkSampler shadowSampler = VK_NULL_HANDLE;
     VkRenderPass shadowRenderPass = VK_NULL_HANDLE;
-    VkFramebuffer shadowFramebuffer = VK_NULL_HANDLE;
-    VkImageLayout shadowDepthLayout_ = VK_IMAGE_LAYOUT_UNDEFINED;
+    VkFramebuffer shadowFramebuffer[2] = {};
+    VkImageLayout shadowDepthLayout_[2] = {};
     glm::mat4 lightSpaceMatrix = glm::mat4(1.0f);
     glm::vec3 shadowCenter = glm::vec3(0.0f);
     bool shadowCenterInitialized = false;
