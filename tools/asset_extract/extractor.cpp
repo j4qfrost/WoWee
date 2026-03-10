@@ -76,8 +76,29 @@ static std::vector<uint8_t> readFileBytes(const std::string& path) {
     return buf;
 }
 
-static bool isValidStringOffset(const std::vector<uint8_t>& stringBlock, uint32_t offset) {
+// Precompute the set of valid string-boundary offsets in the string block.
+// An offset is a valid boundary if it is 0 or immediately follows a null byte.
+// This prevents small integer values (e.g. RaceID=1, 2, 3) from being falsely
+// detected as string offsets just because they land in the middle of a longer
+// string that starts at a lower offset.
+static std::set<uint32_t> computeStringBoundaries(const std::vector<uint8_t>& stringBlock) {
+    std::set<uint32_t> boundaries;
+    if (stringBlock.empty()) return boundaries;
+    boundaries.insert(0);
+    for (size_t i = 0; i + 1 < stringBlock.size(); ++i) {
+        if (stringBlock[i] == 0) {
+            boundaries.insert(static_cast<uint32_t>(i + 1));
+        }
+    }
+    return boundaries;
+}
+
+static bool isValidStringOffset(const std::vector<uint8_t>& stringBlock,
+                                const std::set<uint32_t>& boundaries,
+                                uint32_t offset) {
     if (offset >= stringBlock.size()) return false;
+    // Must start at a string boundary (offset 0 or right after a null byte).
+    if (!boundaries.count(offset)) return false;
     for (size_t i = offset; i < stringBlock.size(); ++i) {
         uint8_t c = stringBlock[i];
         if (c == 0) return true;
@@ -105,21 +126,33 @@ static std::set<uint32_t> detectStringColumns(const DBCFile& dbc,
     std::set<uint32_t> cols;
     if (stringBlock.size() <= 1) return cols;
 
+    auto boundaries = computeStringBoundaries(stringBlock);
+
     for (uint32_t col = 0; col < fieldCount; ++col) {
         bool allZeroOrValid = true;
         bool hasNonZero = false;
+        std::set<std::string> distinctStrings;
 
         for (uint32_t row = 0; row < recordCount; ++row) {
             uint32_t val = dbc.getUInt32(row, col);
             if (val == 0) continue;
             hasNonZero = true;
-            if (!isValidStringOffset(stringBlock, val)) {
+            if (!isValidStringOffset(stringBlock, boundaries, val)) {
                 allZeroOrValid = false;
                 break;
             }
+            // Collect distinct non-empty strings for diversity check.
+            const char* s = reinterpret_cast<const char*>(stringBlock.data() + val);
+            if (*s != '\0') {
+                distinctStrings.insert(std::string(s, strnlen(s, 256)));
+            }
         }
 
-        if (allZeroOrValid && hasNonZero) {
+        // Require at least 2 distinct non-empty string values.  Columns that
+        // only ever point to a single string (e.g. SexID=1 always resolves to
+        // the same path fragment at offset 1 in the block) are almost certainly
+        // integer fields whose small values accidentally land at a string boundary.
+        if (allZeroOrValid && hasNonZero && distinctStrings.size() >= 2) {
             cols.insert(col);
         }
     }
