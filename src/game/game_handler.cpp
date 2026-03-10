@@ -12087,6 +12087,16 @@ void GameHandler::handleCastFailed(network::Packet& packet) {
     addLocalChatMessage(msg);
 }
 
+static audio::SpellSoundManager::MagicSchool schoolMaskToMagicSchool(uint32_t mask) {
+    if (mask & 0x04) return audio::SpellSoundManager::MagicSchool::FIRE;
+    if (mask & 0x10) return audio::SpellSoundManager::MagicSchool::FROST;
+    if (mask & 0x02) return audio::SpellSoundManager::MagicSchool::HOLY;
+    if (mask & 0x08) return audio::SpellSoundManager::MagicSchool::NATURE;
+    if (mask & 0x20) return audio::SpellSoundManager::MagicSchool::SHADOW;
+    if (mask & 0x40) return audio::SpellSoundManager::MagicSchool::ARCANE;
+    return audio::SpellSoundManager::MagicSchool::ARCANE;
+}
+
 void GameHandler::handleSpellStart(network::Packet& packet) {
     SpellStartData data;
     if (!SpellStartParser::parse(packet, data)) return;
@@ -12098,10 +12108,15 @@ void GameHandler::handleSpellStart(network::Packet& packet) {
         castTimeTotal = data.castTime / 1000.0f;
         castTimeRemaining = castTimeTotal;
 
-        // Play precast (channeling) sound
+        // Play precast (channeling) sound with correct magic school
         if (auto* renderer = core::Application::getInstance().getRenderer()) {
             if (auto* ssm = renderer->getSpellSoundManager()) {
-                ssm->playPrecast(audio::SpellSoundManager::MagicSchool::ARCANE, audio::SpellSoundManager::SpellPower::MEDIUM);
+                loadSpellNameCache();
+                auto it = spellNameCache_.find(data.spellId);
+                auto school = (it != spellNameCache_.end() && it->second.schoolMask)
+                    ? schoolMaskToMagicSchool(it->second.schoolMask)
+                    : audio::SpellSoundManager::MagicSchool::ARCANE;
+                ssm->playPrecast(school, audio::SpellSoundManager::SpellPower::MEDIUM);
             }
         }
     }
@@ -12113,10 +12128,15 @@ void GameHandler::handleSpellGo(network::Packet& packet) {
 
     // Cast completed
     if (data.casterUnit == playerGuid) {
-        // Play cast-complete sound before clearing state
+        // Play cast-complete sound with correct magic school
         if (auto* renderer = core::Application::getInstance().getRenderer()) {
             if (auto* ssm = renderer->getSpellSoundManager()) {
-                ssm->playCast(audio::SpellSoundManager::MagicSchool::ARCANE);
+                loadSpellNameCache();
+                auto it = spellNameCache_.find(data.spellId);
+                auto school = (it != spellNameCache_.end() && it->second.schoolMask)
+                    ? schoolMaskToMagicSchool(it->second.schoolMask)
+                    : audio::SpellSoundManager::MagicSchool::ARCANE;
+                ssm->playCast(school);
             }
         }
 
@@ -14269,6 +14289,17 @@ void GameHandler::loadSpellNameCache() {
     }
 
     const auto* spellL = pipeline::getActiveDBCLayout() ? pipeline::getActiveDBCLayout()->getLayout("Spell") : nullptr;
+
+    // Determine school field (bitmask for TBC/WotLK, enum for Classic/Vanilla)
+    uint32_t schoolMaskField = 0, schoolEnumField = 0;
+    bool hasSchoolMask = false, hasSchoolEnum = false;
+    if (spellL) {
+        uint32_t f = spellL->field("SchoolMask");
+        if (f != 0xFFFFFFFF && f < dbc->getFieldCount()) { schoolMaskField = f; hasSchoolMask = true; }
+        f = spellL->field("SchoolEnum");
+        if (f != 0xFFFFFFFF && f < dbc->getFieldCount()) { schoolEnumField = f; hasSchoolEnum = true; }
+    }
+
     uint32_t count = dbc->getRecordCount();
     for (uint32_t i = 0; i < count; ++i) {
         uint32_t id = dbc->getUInt32(i, spellL ? (*spellL)["ID"] : 0);
@@ -14276,7 +14307,16 @@ void GameHandler::loadSpellNameCache() {
         std::string name = dbc->getString(i, spellL ? (*spellL)["Name"] : 136);
         std::string rank = dbc->getString(i, spellL ? (*spellL)["Rank"] : 153);
         if (!name.empty()) {
-            spellNameCache_[id] = {std::move(name), std::move(rank)};
+            SpellNameEntry entry{std::move(name), std::move(rank), 0};
+            if (hasSchoolMask) {
+                entry.schoolMask = dbc->getUInt32(i, schoolMaskField);
+            } else if (hasSchoolEnum) {
+                // Classic/Vanilla enum: 0=Physical,1=Holy,2=Fire,3=Nature,4=Frost,5=Shadow,6=Arcane
+                static const uint32_t enumToBitmask[] = {0x01,0x02,0x04,0x08,0x10,0x20,0x40};
+                uint32_t e = dbc->getUInt32(i, schoolEnumField);
+                entry.schoolMask = (e < 7) ? enumToBitmask[e] : 0;
+            }
+            spellNameCache_[id] = std::move(entry);
         }
     }
     LOG_INFO("Trainer: Loaded ", spellNameCache_.size(), " spell names from Spell.dbc");

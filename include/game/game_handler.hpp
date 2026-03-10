@@ -1971,7 +1971,7 @@ private:
     // Trainer
     bool trainerWindowOpen_ = false;
     TrainerListData currentTrainerList_;
-    struct SpellNameEntry { std::string name; std::string rank; };
+    struct SpellNameEntry { std::string name; std::string rank; uint32_t schoolMask = 0; };
     std::unordered_map<uint32_t, SpellNameEntry> spellNameCache_;
     bool spellNameCacheLoaded_ = false;
     std::vector<TrainerTab> trainerTabs_;
