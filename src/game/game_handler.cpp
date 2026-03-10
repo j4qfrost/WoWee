@@ -3994,9 +3994,12 @@ void GameHandler::handlePacket(network::Packet& packet) {
                         }
                         quest.killCounts[entry] = {count, reqCount};
 
-                        std::string progressMsg = quest.title + ": " +
-                                                std::to_string(count) + "/" +
-                                                std::to_string(reqCount);
+                        std::string creatureName = getCachedCreatureName(entry);
+                        std::string progressMsg = quest.title + ": ";
+                        if (!creatureName.empty()) {
+                            progressMsg += creatureName + " ";
+                        }
+                        progressMsg += std::to_string(count) + "/" + std::to_string(reqCount);
                         addSystemChatMessage(progressMsg);
 
                         LOG_INFO("Updated kill count for quest ", questId, ": ",

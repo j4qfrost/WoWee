@@ -4687,8 +4687,15 @@ void GameScreen::renderQuestObjectiveTracker(game::GameHandler& gameHandler) {
             } else {
                 // Kill counts
                 for (const auto& [entry, progress] : q.killCounts) {
-                    ImGui::TextColored(ImVec4(0.75f, 0.75f, 0.75f, 1.0f),
-                                       "  %u/%u", progress.first, progress.second);
+                    std::string creatureName = gameHandler.getCachedCreatureName(entry);
+                    if (!creatureName.empty()) {
+                        ImGui::TextColored(ImVec4(0.75f, 0.75f, 0.75f, 1.0f),
+                                           "  %s: %u/%u", creatureName.c_str(),
+                                           progress.first, progress.second);
+                    } else {
+                        ImGui::TextColored(ImVec4(0.75f, 0.75f, 0.75f, 1.0f),
+                                           "  %u/%u", progress.first, progress.second);
+                    }
                 }
                 // Item counts
                 for (const auto& [itemId, count] : q.itemCounts) {
