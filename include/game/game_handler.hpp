@@ -772,6 +772,10 @@ public:
         bool     extended    = false;
     };
     const std::vector<InstanceLockout>& getInstanceLockouts() const { return instanceLockouts_; }
+    // Returns boss unit guid for the given encounter slot (0 if none)
+    uint64_t getEncounterUnitGuid(uint32_t slot) const {
+        return (slot < kMaxEncounterSlots) ? encounterUnitGuids_[slot] : 0;
+    }
 
     // ---- LFG / Dungeon Finder ----
     enum class LfgState : uint8_t {
@@ -1737,6 +1741,10 @@ private:
 
     // Instance / raid lockouts
     std::vector<InstanceLockout> instanceLockouts_;
+
+    // Instance encounter boss units (slots 0-4 from SMSG_UPDATE_INSTANCE_ENCOUNTER_UNIT)
+    static constexpr uint32_t kMaxEncounterSlots = 5;
+    std::array<uint64_t, kMaxEncounterSlots> encounterUnitGuids_ = {};  // 0 = empty slot
 
     // LFG / Dungeon Finder state
     LfgState lfgState_        = LfgState::None;

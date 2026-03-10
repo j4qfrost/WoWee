@@ -4547,11 +4547,61 @@ void GameHandler::handlePacket(network::Packet& packet) {
         case Opcode::SMSG_ITEM_REFUND_INFO_RESPONSE:
         case Opcode::SMSG_ITEM_ENCHANT_TIME_UPDATE:
         case Opcode::SMSG_LOOT_LIST:
-        case Opcode::SMSG_RESUME_CAST_BAR:
-        case Opcode::SMSG_THREAT_UPDATE:
+        case Opcode::SMSG_RESUME_CAST_BAR: {
+            // packed_guid caster + packed_guid target + uint32 spellId
+            // + uint32 remainingMs + uint32 totalMs + uint8 schoolMask
+            auto remaining = [&]() { return packet.getSize() - packet.getReadPos(); };
+            if (remaining() < 1) break;
+            uint64_t caster = UpdateObjectParser::readPackedGuid(packet);
+            if (remaining() < 1) break;
+            (void)UpdateObjectParser::readPackedGuid(packet); // target
+            if (remaining() < 12) break;
+            uint32_t spellId   = packet.readUInt32();
+            uint32_t remainMs  = packet.readUInt32();
+            uint32_t totalMs   = packet.readUInt32();
+            if (caster == playerGuid && totalMs > 0) {
+                casting              = true;
+                currentCastSpellId   = spellId;
+                castTimeTotal        = totalMs   / 1000.0f;
+                castTimeRemaining    = remainMs  / 1000.0f;
+                LOG_DEBUG("SMSG_RESUME_CAST_BAR: spell=", spellId,
+                          " remaining=", remainMs, "ms total=", totalMs, "ms");
+            }
+            break;
+        }
+        case Opcode::SMSG_THREAT_UPDATE: {
+            // packed_guid (unit) + packed_guid (target) + uint32 count
+            // + count × (packed_guid victim + uint32 threat) — consume to suppress warnings
+            if (packet.getSize() - packet.getReadPos() < 1) break;
+            (void)UpdateObjectParser::readPackedGuid(packet);
+            if (packet.getSize() - packet.getReadPos() < 1) break;
+            (void)UpdateObjectParser::readPackedGuid(packet);
+            if (packet.getSize() - packet.getReadPos() < 4) break;
+            uint32_t cnt = packet.readUInt32();
+            for (uint32_t i = 0; i < cnt && packet.getSize() - packet.getReadPos() >= 1; ++i) {
+                (void)UpdateObjectParser::readPackedGuid(packet);
+                if (packet.getSize() - packet.getReadPos() >= 4)
+                    packet.readUInt32();
+            }
+            break;
+        }
+        case Opcode::SMSG_UPDATE_INSTANCE_ENCOUNTER_UNIT: {
+            // uint32 slot + packed_guid unit (0 packed = clear slot)
+            if (packet.getSize() - packet.getReadPos() < 5) {
+                packet.setReadPos(packet.getSize());
+                break;
+            }
+            uint32_t slot = packet.readUInt32();
+            uint64_t unit = UpdateObjectParser::readPackedGuid(packet);
+            if (slot < kMaxEncounterSlots) {
+                encounterUnitGuids_[slot] = unit;
+                LOG_DEBUG("SMSG_UPDATE_INSTANCE_ENCOUNTER_UNIT: slot=", slot,
+                          " guid=0x", std::hex, unit, std::dec);
+            }
+            break;
+        }
         case Opcode::SMSG_UPDATE_INSTANCE_OWNERSHIP:
         case Opcode::SMSG_UPDATE_LAST_INSTANCE:
-        case Opcode::SMSG_UPDATE_INSTANCE_ENCOUNTER_UNIT:
         case Opcode::SMSG_SEND_ALL_COMBAT_LOG:
         case Opcode::SMSG_SET_PROJECTILE_POSITION:
         case Opcode::SMSG_AUCTION_LIST_PENDING_SALES:
@@ -5442,6 +5492,9 @@ void GameHandler::handleLoginVerifyWorld(network::Packet& packet) {
     if (mountCallback_) {
         mountCallback_(0);
     }
+
+    // Clear boss encounter unit slots on world transfer
+    encounterUnitGuids_.fill(0);
 
     // Suppress area triggers on initial login — prevents exit portals from
     // immediately firing when spawning inside a dungeon/instance.
