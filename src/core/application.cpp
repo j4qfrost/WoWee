@@ -5595,11 +5595,11 @@ void Application::spawnOnlineCreature(uint64_t guid, uint32_t displayId, float x
                     if (did == 0) return 0;
                     int32_t idx = itemDisplayDbc->findRecordById(did);
                     if (idx < 0) {
-                        LOG_INFO("NPC equip slot ", slotName, " displayId=", did, " NOT FOUND in ItemDisplayInfo.dbc");
+                        LOG_DEBUG("NPC equip slot ", slotName, " displayId=", did, " NOT FOUND in ItemDisplayInfo.dbc");
                         return 0;
                     }
                     uint32_t gg = itemDisplayDbc->getUInt32(static_cast<uint32_t>(idx), fGG1);
-                    LOG_INFO("NPC equip slot ", slotName, " displayId=", did, " GeosetGroup1=", gg, " (field=", fGG1, ")");
+                    LOG_DEBUG("NPC equip slot ", slotName, " displayId=", did, " GeosetGroup1=", gg);
                     return gg;
                 };
 
@@ -5729,23 +5729,6 @@ void Application::spawnOnlineCreature(uint64_t guid, uint32_t displayId, float x
                 activeGeosets.insert(101);  // Default group 1 connector
             }
 
-            // Log model's actual submesh IDs for debugging geoset mismatches
-            if (auto* md = charRenderer->getModelData(modelId)) {
-                std::string batchIds;
-                for (const auto& b : md->batches) {
-                    if (!batchIds.empty()) batchIds += ",";
-                    batchIds += std::to_string(b.submeshId);
-                }
-                LOG_INFO("Model batches submeshIds: [", batchIds, "]");
-            }
-
-            // Log what geosets we're setting for debugging
-            std::string geosetList;
-            for (uint16_t g : activeGeosets) {
-                if (!geosetList.empty()) geosetList += ",";
-                geosetList += std::to_string(g);
-            }
-            LOG_INFO("NPC geosets for instance ", instanceId, ": [", geosetList, "]");
             charRenderer->setActiveGeosets(instanceId, activeGeosets);
             if (geosetCape != 0 && npcCapeTextureId) {
                 charRenderer->setGroupTextureOverride(instanceId, 15, npcCapeTextureId);
