@@ -267,6 +267,9 @@ private:
     bool spellIconDbLoaded_ = false;
     VkDescriptorSet getSpellIcon(uint32_t spellId, pipeline::AssetManager* am);
 
+    // Death Knight rune bar: client-predicted fill (0.0=depleted, 1.0=ready) for smooth animation
+    float runeClientFill_[6] = {1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f};
+
     // Action bar drag state (-1 = not dragging)
     int actionBarDragSlot_ = -1;
     VkDescriptorSet actionBarDragIcon_ = VK_NULL_HANDLE;

@@ -902,6 +902,15 @@ public:
     uint8_t  getComboPoints() const { return comboPoints_; }
     uint64_t getComboTarget() const { return comboTarget_; }
 
+    // Death Knight rune state (6 runes: 0-1=Blood, 2-3=Unholy, 4-5=Frost; may become Death=3)
+    enum class RuneType : uint8_t { Blood = 0, Unholy = 1, Frost = 2, Death = 3 };
+    struct RuneSlot {
+        RuneType type = RuneType::Blood;
+        bool     ready = true;          // Server-confirmed ready state
+        float    readyFraction = 1.0f;  // 0.0=depleted → 1.0=full (from server sync)
+    };
+    const std::array<RuneSlot, 6>& getPlayerRunes() const { return playerRunes_; }
+
     struct FactionStandingInit {
         uint8_t flags = 0;
         int32_t standing = 0;
@@ -2081,6 +2090,14 @@ private:
     float serverPitchRate_ = 3.14159f;
     bool playerDead_ = false;
     bool releasedSpirit_ = false;
+    // Death Knight runes (class 6): slots 0-1=Blood, 2-3=Unholy, 4-5=Frost initially
+    std::array<RuneSlot, 6> playerRunes_ = [] {
+        std::array<RuneSlot, 6> r{};
+        r[0].type = r[1].type = RuneType::Blood;
+        r[2].type = r[3].type = RuneType::Unholy;
+        r[4].type = r[5].type = RuneType::Frost;
+        return r;
+    }();
     uint64_t pendingSpiritHealerGuid_ = 0;
     bool resurrectPending_ = false;
     bool resurrectRequestPending_ = false;

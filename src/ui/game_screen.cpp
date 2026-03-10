@@ -1815,6 +1815,56 @@ void GameScreen::renderPlayerFrame(game::GameHandler& gameHandler) {
                 ImGui::PopStyleColor();
             }
         }
+
+        // Death Knight rune bar (class 6) — 6 colored squares with fill fraction
+        if (gameHandler.getPlayerClass() == 6) {
+            const auto& runes = gameHandler.getPlayerRunes();
+            float dt = ImGui::GetIO().DeltaTime;
+
+            ImGui::Spacing();
+            ImVec2 cursor = ImGui::GetCursorScreenPos();
+            float totalW  = ImGui::GetContentRegionAvail().x;
+            float spacing = 3.0f;
+            float squareW = (totalW - spacing * 5.0f) / 6.0f;
+            float squareH = 14.0f;
+            ImDrawList* dl = ImGui::GetWindowDrawList();
+
+            for (int i = 0; i < 6; i++) {
+                // Client-side prediction: advance fill over ~10s cooldown
+                runeClientFill_[i] = runes[i].ready ? 1.0f
+                    : std::min(runeClientFill_[i] + dt / 10.0f, runes[i].readyFraction + 0.02f);
+                runeClientFill_[i] = std::clamp(runeClientFill_[i], 0.0f, runes[i].ready ? 1.0f : 0.97f);
+
+                float x0 = cursor.x + i * (squareW + spacing);
+                float y0 = cursor.y;
+                float x1 = x0 + squareW;
+                float y1 = y0 + squareH;
+
+                // Background (dark)
+                dl->AddRectFilled(ImVec2(x0, y0), ImVec2(x1, y1),
+                                  IM_COL32(30, 30, 30, 200), 2.0f);
+
+                // Fill color by rune type
+                ImVec4 fc;
+                switch (runes[i].type) {
+                    case game::GameHandler::RuneType::Blood:  fc = ImVec4(0.85f, 0.12f, 0.12f, 1.0f); break;
+                    case game::GameHandler::RuneType::Unholy: fc = ImVec4(0.20f, 0.72f, 0.20f, 1.0f); break;
+                    case game::GameHandler::RuneType::Frost:  fc = ImVec4(0.30f, 0.55f, 0.90f, 1.0f); break;
+                    case game::GameHandler::RuneType::Death:  fc = ImVec4(0.55f, 0.20f, 0.70f, 1.0f); break;
+                    default:                                  fc = ImVec4(0.6f,  0.6f,  0.6f,  1.0f); break;
+                }
+                float fillX = x0 + (x1 - x0) * runeClientFill_[i];
+                dl->AddRectFilled(ImVec2(x0, y0), ImVec2(fillX, y1),
+                                  ImGui::ColorConvertFloat4ToU32(fc), 2.0f);
+
+                // Border
+                ImU32 borderCol = runes[i].ready
+                    ? IM_COL32(220, 220, 220, 180)
+                    : IM_COL32(100, 100, 100, 160);
+                dl->AddRect(ImVec2(x0, y0), ImVec2(x1, y1), borderCol, 2.0f);
+            }
+            ImGui::Dummy(ImVec2(totalW, squareH));
+        }
     }
     ImGui::End();
 

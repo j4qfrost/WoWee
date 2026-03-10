@@ -1980,7 +1980,6 @@ void GameHandler::handlePacket(network::Packet& packet) {
         case Opcode::SMSG_FORCE_DISPLAY_UPDATE:
         case Opcode::SMSG_FORCE_SEND_QUEUED_PACKETS:
         case Opcode::SMSG_FORCE_SET_VEHICLE_REC_ID:
-        case Opcode::SMSG_CONVERT_RUNE:
         case Opcode::SMSG_CORPSE_MAP_POSITION_QUERY_RESPONSE:
         case Opcode::SMSG_DAMAGE_CALC_LOG:
         case Opcode::SMSG_DYNAMIC_DROP_ROLL_RESULT:
@@ -4457,11 +4456,49 @@ void GameHandler::handlePacket(network::Packet& packet) {
             packet.setReadPos(packet.getSize());
             break;
 
-        // ---- DK rune tracking (not yet implemented) ----
-        case Opcode::SMSG_ADD_RUNE_POWER:
-        case Opcode::SMSG_RESYNC_RUNES:
-            packet.setReadPos(packet.getSize());
+        // ---- DK rune tracking ----
+        case Opcode::SMSG_CONVERT_RUNE: {
+            // uint8 runeIndex + uint8 newRuneType (0=Blood,1=Unholy,2=Frost,3=Death)
+            if (packet.getSize() - packet.getReadPos() < 2) {
+                packet.setReadPos(packet.getSize());
+                break;
+            }
+            uint8_t idx  = packet.readUInt8();
+            uint8_t type = packet.readUInt8();
+            if (idx < 6) playerRunes_[idx].type = static_cast<RuneType>(type & 0x3);
             break;
+        }
+        case Opcode::SMSG_RESYNC_RUNES: {
+            // uint8 runeReadyMask (bit i=1 → rune i is ready)
+            // uint8[6] cooldowns (0=ready, 255=just used → readyFraction = 1 - val/255)
+            if (packet.getSize() - packet.getReadPos() < 7) {
+                packet.setReadPos(packet.getSize());
+                break;
+            }
+            uint8_t readyMask = packet.readUInt8();
+            for (int i = 0; i < 6; i++) {
+                uint8_t cd = packet.readUInt8();
+                playerRunes_[i].ready = (readyMask & (1u << i)) != 0;
+                playerRunes_[i].readyFraction = 1.0f - cd / 255.0f;
+                if (playerRunes_[i].ready) playerRunes_[i].readyFraction = 1.0f;
+            }
+            break;
+        }
+        case Opcode::SMSG_ADD_RUNE_POWER: {
+            // uint32 runeMask (bit i=1 → rune i just became ready)
+            if (packet.getSize() - packet.getReadPos() < 4) {
+                packet.setReadPos(packet.getSize());
+                break;
+            }
+            uint32_t runeMask = packet.readUInt32();
+            for (int i = 0; i < 6; i++) {
+                if (runeMask & (1u << i)) {
+                    playerRunes_[i].ready = true;
+                    playerRunes_[i].readyFraction = 1.0f;
+                }
+            }
+            break;
+        }
 
         // ---- Spell combat logs (consume) ----
         case Opcode::SMSG_AURACASTLOG:
