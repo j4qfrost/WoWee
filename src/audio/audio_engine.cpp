@@ -288,9 +288,75 @@ bool AudioEngine::playSound2D(const std::vector<uint8_t>& wavData, float volume,
     }
 
     // Track this sound for cleanup (decoded PCM shared across plays)
-    activeSounds_.push_back({sound, audioBuffer, decoded.pcmData});
+    activeSounds_.push_back({sound, audioBuffer, decoded.pcmData, 0u});
 
     return true;
+}
+
+uint32_t AudioEngine::playSound2DStoppable(const std::vector<uint8_t>& wavData, float volume) {
+    if (!initialized_ || !engine_ || wavData.empty()) return 0;
+    if (masterVolume_ <= 0.0f) return 0;
+
+    DecodedWavCacheEntry decoded;
+    if (!decodeWavCached(wavData, decoded) || !decoded.pcmData || decoded.frames == 0) return 0;
+
+    ma_audio_buffer_config bufferConfig = ma_audio_buffer_config_init(
+        decoded.format, decoded.channels, decoded.frames, decoded.pcmData->data(), nullptr);
+    bufferConfig.sampleRate = decoded.sampleRate;
+
+    ma_audio_buffer* audioBuffer = static_cast<ma_audio_buffer*>(std::malloc(sizeof(ma_audio_buffer)));
+    if (!audioBuffer) return 0;
+    if (ma_audio_buffer_init(&bufferConfig, audioBuffer) != MA_SUCCESS) {
+        std::free(audioBuffer);
+        return 0;
+    }
+
+    ma_sound* sound = static_cast<ma_sound*>(std::malloc(sizeof(ma_sound)));
+    if (!sound) {
+        ma_audio_buffer_uninit(audioBuffer);
+        std::free(audioBuffer);
+        return 0;
+    }
+    ma_result result = ma_sound_init_from_data_source(
+        engine_, audioBuffer,
+        MA_SOUND_FLAG_DECODE | MA_SOUND_FLAG_ASYNC | MA_SOUND_FLAG_NO_PITCH | MA_SOUND_FLAG_NO_SPATIALIZATION,
+        nullptr, sound);
+    if (result != MA_SUCCESS) {
+        ma_audio_buffer_uninit(audioBuffer);
+        std::free(audioBuffer);
+        std::free(sound);
+        return 0;
+    }
+
+    ma_sound_set_volume(sound, volume);
+    if (ma_sound_start(sound) != MA_SUCCESS) {
+        ma_sound_uninit(sound);
+        ma_audio_buffer_uninit(audioBuffer);
+        std::free(audioBuffer);
+        std::free(sound);
+        return 0;
+    }
+
+    uint32_t id = nextSoundId_++;
+    if (nextSoundId_ == 0) nextSoundId_ = 1;  // Skip 0 (sentinel)
+    activeSounds_.push_back({sound, audioBuffer, decoded.pcmData, id});
+    return id;
+}
+
+void AudioEngine::stopSound(uint32_t id) {
+    if (id == 0) return;
+    for (auto it = activeSounds_.begin(); it != activeSounds_.end(); ++it) {
+        if (it->id == id) {
+            ma_sound_stop(it->sound);
+            ma_sound_uninit(it->sound);
+            std::free(it->sound);
+            ma_audio_buffer* buffer = static_cast<ma_audio_buffer*>(it->buffer);
+            ma_audio_buffer_uninit(buffer);
+            std::free(buffer);
+            activeSounds_.erase(it);
+            return;
+        }
+    }
 }
 
 bool AudioEngine::playSound2D(const std::string& mpqPath, float volume, float pitch) {

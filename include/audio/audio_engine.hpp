@@ -45,6 +45,11 @@ public:
     bool playSound2D(const std::vector<uint8_t>& wavData, float volume = 1.0f, float pitch = 1.0f);
     bool playSound2D(const std::string& mpqPath, float volume = 1.0f, float pitch = 1.0f);
 
+    // Stoppable 2D sound — returns a non-zero handle, or 0 on failure
+    uint32_t playSound2DStoppable(const std::vector<uint8_t>& wavData, float volume = 1.0f);
+    // Stop a sound started with playSound2DStoppable (no-op if already finished)
+    void stopSound(uint32_t id);
+
     // 3D positional sound playback
     bool playSound3D(const std::vector<uint8_t>& wavData, const glm::vec3& position,
                      float volume = 1.0f, float pitch = 1.0f, float maxDistance = 100.0f);
@@ -70,8 +75,10 @@ private:
         ma_sound* sound;
         void* buffer;  // ma_audio_buffer* - Keep audio buffer alive
         std::shared_ptr<const std::vector<uint8_t>> pcmDataRef;  // Keep decoded PCM alive
+        uint32_t id = 0;  // 0 = anonymous (not stoppable)
     };
     std::vector<ActiveSound> activeSounds_;
+    uint32_t nextSoundId_ = 1;
 
     // Music track state
     ma_sound* musicSound_ = nullptr;

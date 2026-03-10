@@ -220,12 +220,22 @@ void SpellSoundManager::playPrecast(MagicSchool school, SpellPower power) {
             return;
     }
 
-    if (library) {
-        playSound(*library);
+    if (library && !library->empty() && (*library)[0].loaded) {
+        stopPrecast();  // Stop any previous precast still playing
+        float volume = 0.75f * volumeScale_;
+        activePrecastId_ = AudioEngine::instance().playSound2DStoppable((*library)[0].data, volume);
+    }
+}
+
+void SpellSoundManager::stopPrecast() {
+    if (activePrecastId_ != 0) {
+        AudioEngine::instance().stopSound(activePrecastId_);
+        activePrecastId_ = 0;
     }
 }
 
 void SpellSoundManager::playCast(MagicSchool school) {
+    stopPrecast();  // Ensure precast doesn't overlap the cast sound
     switch (school) {
         case MagicSchool::FIRE:
             playSound(castFireSounds_);

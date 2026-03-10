@@ -45,6 +45,7 @@ public:
 
     // Spell casting sounds
     void playPrecast(MagicSchool school, SpellPower power);  // Channeling/preparation
+    void stopPrecast();                                       // Stop precast sound early
     void playCast(MagicSchool school);                        // When spell fires
     void playImpact(MagicSchool school, SpellPower power);    // When spell hits target
 
@@ -96,6 +97,7 @@ private:
     // State tracking
     float volumeScale_ = 1.0f;
     bool initialized_ = false;
+    uint32_t activePrecastId_ = 0;  // Handle from AudioEngine::playSound2DStoppable()
 
     // Helper methods
     bool loadSound(const std::string& path, SpellSample& sample, pipeline::AssetManager* assets);

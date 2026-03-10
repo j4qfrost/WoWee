@@ -2516,6 +2516,11 @@ void GameHandler::handlePacket(network::Packet& packet) {
             // Spell failed mid-cast
             casting = false;
             currentCastSpellId = 0;
+            if (auto* renderer = core::Application::getInstance().getRenderer()) {
+                if (auto* ssm = renderer->getSpellSoundManager()) {
+                    ssm->stopPrecast();
+                }
+            }
             break;
         case Opcode::SMSG_SPELL_COOLDOWN:
             handleSpellCooldown(packet);
@@ -12367,6 +12372,13 @@ void GameHandler::handleCastFailed(network::Packet& packet) {
     casting = false;
     currentCastSpellId = 0;
     castTimeRemaining = 0.0f;
+
+    // Stop precast sound — spell failed before completing
+    if (auto* renderer = core::Application::getInstance().getRenderer()) {
+        if (auto* ssm = renderer->getSpellSoundManager()) {
+            ssm->stopPrecast();
+        }
+    }
 
     // Add system message about failed cast with readable reason
     int powerType = -1;
