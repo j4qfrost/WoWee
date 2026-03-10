@@ -6698,7 +6698,9 @@ void Application::spawnOnlineGameObject(uint64_t guid, uint32_t entry, uint32_t 
 
     glm::vec3 renderPos = core::coords::canonicalToRender(glm::vec3(x, y, z));
     const float renderYawWmo = orientation;
-    const float renderYawM2go = orientation + glm::radians(180.0f);
+    // M2 game objects: model default faces +renderX. renderYaw = canonical + 90° = server_yaw
+    // (same offset as creature/character renderer so all M2 models face consistently)
+    const float renderYawM2go = orientation + glm::radians(90.0f);
 
     bool loadedAsWmo = false;
     if (isWmo) {

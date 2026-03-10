@@ -4718,6 +4718,9 @@ void GameScreen::renderNameplates(game::GameHandler& gameHandler) {
         auto* unit = dynamic_cast<game::Unit*>(entityPtr.get());
         if (!unit || unit->getMaxHealth() == 0) continue;
 
+        // Only show nameplate for the currently targeted unit
+        if (guid != targetGuid) continue;
+
         // Convert canonical WoW position → render space, raise to head height
         glm::vec3 renderPos = core::coords::canonicalToRender(
             glm::vec3(unit->getX(), unit->getY(), unit->getZ()));
