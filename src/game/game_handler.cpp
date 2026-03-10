@@ -1645,10 +1645,11 @@ void GameHandler::handlePacket(network::Packet& packet) {
         // ---- Entity health/power delta updates ----
         case Opcode::SMSG_HEALTH_UPDATE: {
             // WotLK: packed_guid + uint32 health
-            // TBC/Classic: uint64 + uint32 health
-            const bool huTbcLike = isClassicLikeExpansion() || isActiveExpansion("tbc");
-            if (packet.getSize() - packet.getReadPos() < (huTbcLike ? 8u : 2u)) break;
-            uint64_t guid = huTbcLike
+            // TBC: full uint64 + uint32 health
+            // Classic/Vanilla: packed_guid + uint32 health (same as WotLK)
+            const bool huTbc = isActiveExpansion("tbc");
+            if (packet.getSize() - packet.getReadPos() < (huTbc ? 8u : 2u)) break;
+            uint64_t guid = huTbc
                 ? packet.readUInt64() : UpdateObjectParser::readPackedGuid(packet);
             if (packet.getSize() - packet.getReadPos() < 4) break;
             uint32_t hp = packet.readUInt32();
@@ -1660,10 +1661,11 @@ void GameHandler::handlePacket(network::Packet& packet) {
         }
         case Opcode::SMSG_POWER_UPDATE: {
             // WotLK: packed_guid + uint8 powerType + uint32 value
-            // TBC/Classic: uint64 + uint8 powerType + uint32 value
-            const bool puTbcLike = isClassicLikeExpansion() || isActiveExpansion("tbc");
-            if (packet.getSize() - packet.getReadPos() < (puTbcLike ? 8u : 2u)) break;
-            uint64_t guid = puTbcLike
+            // TBC: full uint64 + uint8 powerType + uint32 value
+            // Classic/Vanilla: packed_guid + uint8 powerType + uint32 value (same as WotLK)
+            const bool puTbc = isActiveExpansion("tbc");
+            if (packet.getSize() - packet.getReadPos() < (puTbc ? 8u : 2u)) break;
+            uint64_t guid = puTbc
                 ? packet.readUInt64() : UpdateObjectParser::readPackedGuid(packet);
             if (packet.getSize() - packet.getReadPos() < 5) break;
             uint8_t  powerType = packet.readUInt8();
@@ -1710,10 +1712,11 @@ void GameHandler::handlePacket(network::Packet& packet) {
         // ---- Combo points ----
         case Opcode::SMSG_UPDATE_COMBO_POINTS: {
             // WotLK: packed_guid (target) + uint8 points
-            // TBC/Classic: uint64 (target) + uint8 points
-            const bool cpTbcLike = isClassicLikeExpansion() || isActiveExpansion("tbc");
-            if (packet.getSize() - packet.getReadPos() < (cpTbcLike ? 8u : 2u)) break;
-            uint64_t target = cpTbcLike
+            // TBC: full uint64 (target) + uint8 points
+            // Classic/Vanilla: packed_guid (target) + uint8 points (same as WotLK)
+            const bool cpTbc = isActiveExpansion("tbc");
+            if (packet.getSize() - packet.getReadPos() < (cpTbc ? 8u : 2u)) break;
+            uint64_t target = cpTbc
                 ? packet.readUInt64() : UpdateObjectParser::readPackedGuid(packet);
             if (packet.getSize() - packet.getReadPos() < 1) break;
             comboPoints_ = packet.readUInt8();
@@ -3226,14 +3229,15 @@ void GameHandler::handlePacket(network::Packet& packet) {
             break;
         case Opcode::SMSG_PERIODICAURALOG: {
             // WotLK: packed_guid victim + packed_guid caster + uint32 spellId + uint32 count + effects
-            // TBC/Classic: uint64 victim + uint64 caster + uint32 spellId + uint32 count + effects
-            const bool periodicTbcLike = isClassicLikeExpansion() || isActiveExpansion("tbc");
-            const size_t guidMinSz = periodicTbcLike ? 8u : 2u;
+            // TBC: full uint64 victim + uint64 caster + uint32 spellId + uint32 count + effects
+            // Classic/Vanilla: packed_guid (same as WotLK)
+            const bool periodicTbc = isActiveExpansion("tbc");
+            const size_t guidMinSz = periodicTbc ? 8u : 2u;
             if (packet.getSize() - packet.getReadPos() < guidMinSz) break;
-            uint64_t victimGuid = periodicTbcLike
+            uint64_t victimGuid = periodicTbc
                 ? packet.readUInt64() : UpdateObjectParser::readPackedGuid(packet);
             if (packet.getSize() - packet.getReadPos() < guidMinSz) break;
-            uint64_t casterGuid = periodicTbcLike
+            uint64_t casterGuid = periodicTbc
                 ? packet.readUInt64() : UpdateObjectParser::readPackedGuid(packet);
             if (packet.getSize() - packet.getReadPos() < 8) break;
             uint32_t spellId = packet.readUInt32();
@@ -3274,13 +3278,14 @@ void GameHandler::handlePacket(network::Packet& packet) {
         }
         case Opcode::SMSG_SPELLENERGIZELOG: {
             // WotLK: packed_guid victim + packed_guid caster + uint32 spellId + uint8 powerType + int32 amount
-            // TBC/Classic: uint64 victim + uint64 caster + uint32 spellId + uint8 powerType + int32 amount
-            const bool energizeTbcLike = isClassicLikeExpansion() || isActiveExpansion("tbc");
+            // TBC: full uint64 victim + uint64 caster + uint32 spellId + uint8 powerType + int32 amount
+            // Classic/Vanilla: packed_guid (same as WotLK)
+            const bool energizeTbc = isActiveExpansion("tbc");
             size_t rem = packet.getSize() - packet.getReadPos();
-            if (rem < (energizeTbcLike ? 8u : 2u)) { packet.setReadPos(packet.getSize()); break; }
-            uint64_t victimGuid = energizeTbcLike
+            if (rem < (energizeTbc ? 8u : 2u)) { packet.setReadPos(packet.getSize()); break; }
+            uint64_t victimGuid = energizeTbc
                 ? packet.readUInt64() : UpdateObjectParser::readPackedGuid(packet);
-            uint64_t casterGuid = energizeTbcLike
+            uint64_t casterGuid = energizeTbc
                 ? packet.readUInt64() : UpdateObjectParser::readPackedGuid(packet);
             rem = packet.getSize() - packet.getReadPos();
             if (rem < 6) { packet.setReadPos(packet.getSize()); break; }
