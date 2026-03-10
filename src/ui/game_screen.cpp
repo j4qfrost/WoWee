@@ -2016,6 +2016,17 @@ void GameScreen::renderTargetFrame(game::GameHandler& gameHandler) {
                         IM_COL32(255, 255, 255, 255), timeStr);
                 }
 
+                // Stack / charge count — upper-left corner
+                if (aura.charges > 1) {
+                    ImVec2 iconMin = ImGui::GetItemRectMin();
+                    char chargeStr[8];
+                    snprintf(chargeStr, sizeof(chargeStr), "%u", static_cast<unsigned>(aura.charges));
+                    ImGui::GetWindowDrawList()->AddText(ImVec2(iconMin.x + 3, iconMin.y + 3),
+                        IM_COL32(0, 0, 0, 200), chargeStr);
+                    ImGui::GetWindowDrawList()->AddText(ImVec2(iconMin.x + 2, iconMin.y + 2),
+                        IM_COL32(255, 220, 50, 255), chargeStr);
+                }
+
                 // Tooltip
                 if (ImGui::IsItemHovered()) {
                     std::string name = spellbookScreen.lookupSpellName(aura.spellId, assetMgr);
@@ -5457,6 +5468,18 @@ void GameScreen::renderBuffBar(game::GameHandler& gameHandler) {
                     IM_COL32(0, 0, 0, 200), timeStr);
                 ImGui::GetWindowDrawList()->AddText(ImVec2(cx, cy),
                     IM_COL32(255, 255, 255, 255), timeStr);
+            }
+
+            // Stack / charge count overlay — upper-left corner of the icon
+            if (aura.charges > 1) {
+                ImVec2 iconMin = ImGui::GetItemRectMin();
+                char chargeStr[8];
+                snprintf(chargeStr, sizeof(chargeStr), "%u", static_cast<unsigned>(aura.charges));
+                // Drop shadow then bright yellow text
+                ImGui::GetWindowDrawList()->AddText(ImVec2(iconMin.x + 3, iconMin.y + 3),
+                    IM_COL32(0, 0, 0, 200), chargeStr);
+                ImGui::GetWindowDrawList()->AddText(ImVec2(iconMin.x + 2, iconMin.y + 2),
+                    IM_COL32(255, 220, 50, 255), chargeStr);
             }
 
             // Right-click to cancel buffs / dismount
