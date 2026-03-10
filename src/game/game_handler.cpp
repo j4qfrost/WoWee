@@ -17576,8 +17576,10 @@ void GameHandler::handleAuctionHello(network::Packet& packet) {
 }
 
 void GameHandler::handleAuctionListResult(network::Packet& packet) {
+    // Classic 1.12 has 1 enchant slot per auction entry; TBC/WotLK have 3.
+    const int enchSlots = isClassicLikeExpansion() ? 1 : 3;
     AuctionListResult result;
-    if (!AuctionListResultParser::parse(packet, result)) {
+    if (!AuctionListResultParser::parse(packet, result, enchSlots)) {
         LOG_WARNING("Failed to parse SMSG_AUCTION_LIST_RESULT");
         return;
     }
@@ -17594,8 +17596,9 @@ void GameHandler::handleAuctionListResult(network::Packet& packet) {
 }
 
 void GameHandler::handleAuctionOwnerListResult(network::Packet& packet) {
+    const int enchSlots = isClassicLikeExpansion() ? 1 : 3;
     AuctionListResult result;
-    if (!AuctionListResultParser::parse(packet, result)) {
+    if (!AuctionListResultParser::parse(packet, result, enchSlots)) {
         LOG_WARNING("Failed to parse SMSG_AUCTION_OWNER_LIST_RESULT");
         return;
     }
@@ -17607,8 +17610,9 @@ void GameHandler::handleAuctionOwnerListResult(network::Packet& packet) {
 }
 
 void GameHandler::handleAuctionBidderListResult(network::Packet& packet) {
+    const int enchSlots = isClassicLikeExpansion() ? 1 : 3;
     AuctionListResult result;
-    if (!AuctionListResultParser::parse(packet, result)) {
+    if (!AuctionListResultParser::parse(packet, result, enchSlots)) {
         LOG_WARNING("Failed to parse SMSG_AUCTION_BIDDER_LIST_RESULT");
         return;
     }

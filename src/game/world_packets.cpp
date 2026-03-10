@@ -4514,45 +4514,54 @@ network::Packet AuctionListBidderItemsPacket::build(
     return p;
 }
 
-bool AuctionListResultParser::parse(network::Packet& packet, AuctionListResult& data) {
+bool AuctionListResultParser::parse(network::Packet& packet, AuctionListResult& data, int numEnchantSlots) {
+    // Per-entry fixed size: auctionId(4) + itemEntry(4) + enchantSlots×3×4 +
+    //   randProp(4) + suffix(4) + stack(4) + charges(4) + flags(4) +
+    //   ownerGuid(8) + startBid(4) + outbid(4) + buyout(4) + expire(4) +
+    //   bidderGuid(8) + curBid(4)
+    // Classic: numEnchantSlots=1 → 80 bytes/entry
+    // TBC/WotLK: numEnchantSlots=3 → 104 bytes/entry
     if (packet.getSize() - packet.getReadPos() < 4) return false;
 
     uint32_t count = packet.readUInt32();
     data.auctions.clear();
     data.auctions.reserve(count);
 
+    const size_t minPerEntry = static_cast<size_t>(8 + numEnchantSlots * 12 + 28 + 8 + 8);
     for (uint32_t i = 0; i < count; ++i) {
-        if (packet.getReadPos() + 64 > packet.getSize()) break;
+        if (packet.getReadPos() + minPerEntry > packet.getSize()) break;
         AuctionEntry e;
         e.auctionId = packet.readUInt32();
         e.itemEntry = packet.readUInt32();
-        // 3 enchant slots: enchantId, duration, charges
+        // First enchant slot always present
         e.enchantId = packet.readUInt32();
-        packet.readUInt32(); // enchant duration
-        packet.readUInt32(); // enchant charges
-        packet.readUInt32(); // enchant2 id
-        packet.readUInt32(); // enchant2 duration
-        packet.readUInt32(); // enchant2 charges
-        packet.readUInt32(); // enchant3 id
-        packet.readUInt32(); // enchant3 duration
-        packet.readUInt32(); // enchant3 charges
+        packet.readUInt32(); // enchant1 duration
+        packet.readUInt32(); // enchant1 charges
+        // Extra enchant slots for TBC/WotLK
+        for (int s = 1; s < numEnchantSlots; ++s) {
+            packet.readUInt32(); // enchant N id
+            packet.readUInt32(); // enchant N duration
+            packet.readUInt32(); // enchant N charges
+        }
         e.randomPropertyId = packet.readUInt32();
-        e.suffixFactor = packet.readUInt32();
-        e.stackCount = packet.readUInt32();
+        e.suffixFactor     = packet.readUInt32();
+        e.stackCount       = packet.readUInt32();
         packet.readUInt32(); // item charges
         packet.readUInt32(); // item flags (unused)
-        e.ownerGuid = packet.readUInt64();
-        e.startBid = packet.readUInt32();
-        e.minBidIncrement = packet.readUInt32();
-        e.buyoutPrice = packet.readUInt32();
-        e.timeLeftMs = packet.readUInt32();
-        e.bidderGuid = packet.readUInt64();
-        e.currentBid = packet.readUInt32();
+        e.ownerGuid        = packet.readUInt64();
+        e.startBid         = packet.readUInt32();
+        e.minBidIncrement  = packet.readUInt32();
+        e.buyoutPrice      = packet.readUInt32();
+        e.timeLeftMs       = packet.readUInt32();
+        e.bidderGuid       = packet.readUInt64();
+        e.currentBid       = packet.readUInt32();
         data.auctions.push_back(e);
     }
 
-    data.totalCount = packet.readUInt32();
-    data.searchDelay = packet.readUInt32();
+    if (packet.getSize() - packet.getReadPos() >= 8) {
+        data.totalCount = packet.readUInt32();
+        data.searchDelay = packet.readUInt32();
+    }
     return true;
 }
 
