@@ -4568,10 +4568,54 @@ void GameHandler::handlePacket(network::Packet& packet) {
             }
             break;
         }
-        case Opcode::SMSG_SPELLDISPELLOG:
+        case Opcode::SMSG_SPELLDISPELLOG: {
+            // packed casterGuid + packed victimGuid + uint32 dispelSpell + uint8 isStolen
+            // + uint32 count + count × (uint32 dispelled_spellId + uint32 unk)
+            if (packet.getSize() - packet.getReadPos() < 2) {
+                packet.setReadPos(packet.getSize()); break;
+            }
+            uint64_t casterGuid = UpdateObjectParser::readPackedGuid(packet);
+            if (packet.getSize() - packet.getReadPos() < 2) break;
+            uint64_t victimGuid = UpdateObjectParser::readPackedGuid(packet);
+            if (packet.getSize() - packet.getReadPos() < 9) break;
+            /*uint32_t dispelSpell =*/ packet.readUInt32();
+            uint8_t isStolen = packet.readUInt8();
+            uint32_t count   = packet.readUInt32();
+            // Show system message if player was victim or caster
+            if (victimGuid == playerGuid || casterGuid == playerGuid) {
+                const char* verb = isStolen ? "stolen" : "dispelled";
+                // Collect first dispelled spell name for the message
+                std::string firstSpellName;
+                for (uint32_t i = 0; i < count && packet.getSize() - packet.getReadPos() >= 8; ++i) {
+                    uint32_t dispelledId = packet.readUInt32();
+                    /*uint32_t unk =*/ packet.readUInt32();
+                    if (i == 0) {
+                        const std::string& nm = getSpellName(dispelledId);
+                        firstSpellName = nm.empty() ? ("spell " + std::to_string(dispelledId)) : nm;
+                    }
+                }
+                if (!firstSpellName.empty()) {
+                    char buf[256];
+                    if (victimGuid == playerGuid && casterGuid != playerGuid)
+                        std::snprintf(buf, sizeof(buf), "%s was %s.", firstSpellName.c_str(), verb);
+                    else if (casterGuid == playerGuid)
+                        std::snprintf(buf, sizeof(buf), "You %s %s.", verb, firstSpellName.c_str());
+                    else
+                        std::snprintf(buf, sizeof(buf), "%s %s.", firstSpellName.c_str(), verb);
+                    addSystemChatMessage(buf);
+                }
+            }
+            packet.setReadPos(packet.getSize());
+            break;
+        }
+        case Opcode::SMSG_SPELLSTEALLOG: {
+            // Similar to SPELLDISPELLOG but always isStolen=true; same wire format
+            // Just consume — SPELLDISPELLOG handles the player-facing case above
+            packet.setReadPos(packet.getSize());
+            break;
+        }
         case Opcode::SMSG_SPELLINSTAKILLLOG:
         case Opcode::SMSG_SPELLLOGEXECUTE:
-        case Opcode::SMSG_SPELLSTEALLOG:
         case Opcode::SMSG_SPELL_CHANCE_PROC_LOG:
         case Opcode::SMSG_SPELL_CHANCE_RESIST_PUSHBACK:
         case Opcode::SMSG_SPELL_UPDATE_CHAIN_TARGETS:
