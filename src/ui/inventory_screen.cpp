@@ -1594,6 +1594,20 @@ void InventoryScreen::renderItemSlot(game::Inventory& inventory, const game::Ite
                               IM_COL32(255, 255, 255, 220), countStr);
         }
 
+        // Durability bar on equipment slots (3px strip at bottom of slot icon)
+        if (kind == SlotKind::EQUIPMENT && item.maxDurability > 0) {
+            float durPct = static_cast<float>(item.curDurability) /
+                           static_cast<float>(item.maxDurability);
+            ImU32 durCol;
+            if (durPct > 0.5f)       durCol = IM_COL32(0, 200, 0, 220);
+            else if (durPct > 0.25f) durCol = IM_COL32(220, 220, 0, 220);
+            else                     durCol = IM_COL32(220, 40, 40, 220);
+            float barW = size * durPct;
+            drawList->AddRectFilled(ImVec2(pos.x, pos.y + size - 3.0f),
+                                    ImVec2(pos.x + barW, pos.y + size),
+                                    durCol);
+        }
+
         ImGui::InvisibleButton("slot", ImVec2(size, size));
 
         // Left mouse: hold to pick up, release to drop/swap
