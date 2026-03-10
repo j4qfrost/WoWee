@@ -361,7 +361,7 @@ private:
         std::future<PreparedNpcComposite> future;
     };
     std::vector<AsyncNpcCompositeLoad> asyncNpcCompositeLoads_;
-    void processAsyncNpcCompositeResults();
+    void processAsyncNpcCompositeResults(bool unlimited = false);
     // Cache base player model geometry by (raceId, genderId)
     std::unordered_map<uint32_t, uint32_t> playerModelCache_; // key=(race<<8)|gender → modelId
     struct PlayerTextureSlots { int skin = -1; int hair = -1; int underwear = -1; };

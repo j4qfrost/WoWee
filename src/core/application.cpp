@@ -4397,7 +4397,7 @@ void Application::loadOnlineWorldTerrain(uint32_t mapId, float x, float y, float
             // During load screen warmup: lift per-frame budgets so GPU uploads
             // and spawns happen in bulk while the loading screen is still visible.
             processCreatureSpawnQueue(true);
-            processAsyncNpcCompositeResults();
+            processAsyncNpcCompositeResults(true);
             // Process equipment queue more aggressively during warmup (multiple per iteration)
             for (int i = 0; i < 8 && (!deferredEquipmentQueue_.empty() || !asyncEquipmentLoads_.empty()); i++) {
                 processDeferredEquipmentQueue();
@@ -7072,11 +7072,21 @@ void Application::processAsyncCreatureResults(bool unlimited) {
     }
 }
 
-void Application::processAsyncNpcCompositeResults() {
+void Application::processAsyncNpcCompositeResults(bool unlimited) {
     auto* charRenderer = renderer ? renderer->getCharacterRenderer() : nullptr;
     if (!charRenderer) return;
 
+    // Budget: 2ms per frame to avoid stalling when many NPCs complete skin compositing
+    // simultaneously. In unlimited mode (load screen), process everything without cap.
+    static constexpr float kCompositeBudgetMs = 2.0f;
+    auto startTime = std::chrono::steady_clock::now();
+
     for (auto it = asyncNpcCompositeLoads_.begin(); it != asyncNpcCompositeLoads_.end(); ) {
+        if (!unlimited) {
+            float elapsed = std::chrono::duration<float, std::milli>(
+                std::chrono::steady_clock::now() - startTime).count();
+            if (elapsed >= kCompositeBudgetMs) break;
+        }
         if (!it->future.valid() ||
             it->future.wait_for(std::chrono::milliseconds(0)) != std::future_status::ready) {
             ++it;
