@@ -2049,12 +2049,25 @@ bool WMORenderer::isPortalVisible(const ModelData& model, uint16_t portalIndex,
     }
     center /= static_cast<float>(portal.vertexCount);
 
-    // Transform bounds to world space for frustum test
-    glm::vec4 worldMin = modelMatrix * glm::vec4(pMin, 1.0f);
-    glm::vec4 worldMax = modelMatrix * glm::vec4(pMax, 1.0f);
+    // Transform all 8 corners to world space to build the correct world AABB.
+    // Direct transform of pMin/pMax is wrong for rotated WMOs — the matrix can
+    // swap or negate components, inverting min/max and causing frustum test failures.
+    const glm::vec3 corners[8] = {
+        {pMin.x, pMin.y, pMin.z}, {pMax.x, pMin.y, pMin.z},
+        {pMin.x, pMax.y, pMin.z}, {pMax.x, pMax.y, pMin.z},
+        {pMin.x, pMin.y, pMax.z}, {pMax.x, pMin.y, pMax.z},
+        {pMin.x, pMax.y, pMax.z}, {pMax.x, pMax.y, pMax.z},
+    };
+    glm::vec3 worldMin( std::numeric_limits<float>::max());
+    glm::vec3 worldMax(-std::numeric_limits<float>::max());
+    for (const auto& c : corners) {
+        glm::vec3 wc = glm::vec3(modelMatrix * glm::vec4(c, 1.0f));
+        worldMin = glm::min(worldMin, wc);
+        worldMax = glm::max(worldMax, wc);
+    }
 
     // Check if portal AABB intersects frustum (more robust than point test)
-    return frustum.intersectsAABB(glm::vec3(worldMin), glm::vec3(worldMax));
+    return frustum.intersectsAABB(worldMin, worldMax);
 }
 
 void WMORenderer::getVisibleGroupsViaPortals(const ModelData& model,
