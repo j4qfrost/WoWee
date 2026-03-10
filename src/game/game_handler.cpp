@@ -11744,12 +11744,14 @@ void GameHandler::handleAttackerStateUpdate(network::Packet& packet) {
         addCombatText(CombatTextEntry::DODGE, 0, 0, isPlayerAttacker);
     } else if (data.victimState == 2) {
         addCombatText(CombatTextEntry::PARRY, 0, 0, isPlayerAttacker);
+    } else if (data.victimState == 4) {
+        addCombatText(CombatTextEntry::BLOCK, 0, 0, isPlayerAttacker);
     } else {
         auto type = data.isCrit() ? CombatTextEntry::CRIT_DAMAGE : CombatTextEntry::MELEE_DAMAGE;
         addCombatText(type, data.totalDamage, 0, isPlayerAttacker);
     }
 
-    (void)isPlayerTarget; // Used for future incoming damage display
+    (void)isPlayerTarget;
 }
 
 void GameHandler::handleSpellDamageLog(network::Packet& packet) {
