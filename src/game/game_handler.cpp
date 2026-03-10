@@ -4529,11 +4529,48 @@ void GameHandler::handlePacket(network::Packet& packet) {
         // ---- Spell combat logs (consume) ----
         case Opcode::SMSG_AURACASTLOG:
         case Opcode::SMSG_SPELLBREAKLOG:
-        case Opcode::SMSG_SPELLDAMAGESHIELD:
+        case Opcode::SMSG_SPELLDAMAGESHIELD: {
+            // victimGuid(8) + casterGuid(8) + spellId(4) + damage(4) + schoolMask(4)
+            if (packet.getSize() - packet.getReadPos() < 24) {
+                packet.setReadPos(packet.getSize()); break;
+            }
+            uint64_t victimGuid  = packet.readUInt64();
+            uint64_t casterGuid  = packet.readUInt64();
+            /*uint32_t spellId =*/ packet.readUInt32();
+            uint32_t damage      = packet.readUInt32();
+            /*uint32_t school =*/  packet.readUInt32();
+            // Show combat text: damage shield reflect
+            if (casterGuid == playerGuid) {
+                // We have a damage shield that reflected damage
+                addCombatText(CombatTextEntry::SPELL_DAMAGE, static_cast<int32_t>(damage), 0, true);
+            } else if (victimGuid == playerGuid) {
+                // A damage shield hit us (e.g. target's Thorns)
+                addCombatText(CombatTextEntry::SPELL_DAMAGE, static_cast<int32_t>(damage), 0, false);
+            }
+            break;
+        }
+        case Opcode::SMSG_SPELLORDAMAGE_IMMUNE: {
+            // casterGuid(packed) + victimGuid(packed) + uint32 spellId + uint8 saveType
+            if (packet.getSize() - packet.getReadPos() < 2) {
+                packet.setReadPos(packet.getSize()); break;
+            }
+            uint64_t casterGuid = UpdateObjectParser::readPackedGuid(packet);
+            if (packet.getSize() - packet.getReadPos() < 2) break;
+            uint64_t victimGuid = UpdateObjectParser::readPackedGuid(packet);
+            if (packet.getSize() - packet.getReadPos() < 5) break;
+            /*uint32_t spellId =*/ packet.readUInt32();
+            /*uint8_t saveType =*/ packet.readUInt8();
+            // Show IMMUNE text when the player is the caster (we hit an immune target)
+            // or the victim (we are immune)
+            if (casterGuid == playerGuid || victimGuid == playerGuid) {
+                addCombatText(CombatTextEntry::IMMUNE, 0, 0,
+                              casterGuid == playerGuid);
+            }
+            break;
+        }
         case Opcode::SMSG_SPELLDISPELLOG:
         case Opcode::SMSG_SPELLINSTAKILLLOG:
         case Opcode::SMSG_SPELLLOGEXECUTE:
-        case Opcode::SMSG_SPELLORDAMAGE_IMMUNE:
         case Opcode::SMSG_SPELLSTEALLOG:
         case Opcode::SMSG_SPELL_CHANCE_PROC_LOG:
         case Opcode::SMSG_SPELL_CHANCE_RESIST_PUSHBACK:
@@ -11496,6 +11533,26 @@ void GameHandler::handleCompressedMoves(network::Packet& packet) {
     uint16_t monsterMoveWire          = wireOpcode(Opcode::SMSG_MONSTER_MOVE);
     uint16_t monsterMoveTransportWire = wireOpcode(Opcode::SMSG_MONSTER_MOVE_TRANSPORT);
 
+    // Player movement sub-opcodes (SMSG_MULTIPLE_MOVES carries MSG_MOVE_*)
+    // Not static — wireOpcode() depends on runtime active opcode table.
+    const std::array<uint16_t, 15> kMoveOpcodes = {
+        wireOpcode(Opcode::MSG_MOVE_START_FORWARD),
+        wireOpcode(Opcode::MSG_MOVE_START_BACKWARD),
+        wireOpcode(Opcode::MSG_MOVE_STOP),
+        wireOpcode(Opcode::MSG_MOVE_START_STRAFE_LEFT),
+        wireOpcode(Opcode::MSG_MOVE_START_STRAFE_RIGHT),
+        wireOpcode(Opcode::MSG_MOVE_STOP_STRAFE),
+        wireOpcode(Opcode::MSG_MOVE_JUMP),
+        wireOpcode(Opcode::MSG_MOVE_START_TURN_LEFT),
+        wireOpcode(Opcode::MSG_MOVE_START_TURN_RIGHT),
+        wireOpcode(Opcode::MSG_MOVE_STOP_TURN),
+        wireOpcode(Opcode::MSG_MOVE_SET_FACING),
+        wireOpcode(Opcode::MSG_MOVE_FALL_LAND),
+        wireOpcode(Opcode::MSG_MOVE_HEARTBEAT),
+        wireOpcode(Opcode::MSG_MOVE_START_SWIM),
+        wireOpcode(Opcode::MSG_MOVE_STOP_SWIM),
+    };
+
     // Track unhandled sub-opcodes once per compressed packet (avoid log spam)
     std::unordered_set<uint16_t> unhandledSeen;
 
@@ -11521,6 +11578,10 @@ void GameHandler::handleCompressedMoves(network::Packet& packet) {
             handleMonsterMove(subPacket);
         } else if (subOpcode == monsterMoveTransportWire) {
             handleMonsterMoveTransport(subPacket);
+        } else if (state == WorldState::IN_WORLD &&
+                   std::find(kMoveOpcodes.begin(), kMoveOpcodes.end(), subOpcode) != kMoveOpcodes.end()) {
+            // Player/NPC movement update packed in SMSG_MULTIPLE_MOVES
+            handleOtherPlayerMovement(subPacket);
         } else {
             if (unhandledSeen.insert(subOpcode).second) {
                 LOG_INFO("SMSG_COMPRESSED_MOVES: unhandled sub-opcode 0x",

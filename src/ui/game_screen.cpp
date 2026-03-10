@@ -4671,6 +4671,10 @@ void GameScreen::renderCombatText(game::GameHandler& gameHandler) {
                     snprintf(text, sizeof(text), "+%d XP", entry.amount);
                     color = ImVec4(0.7f, 0.3f, 1.0f, alpha);  // Purple for XP
                     break;
+                case game::CombatTextEntry::IMMUNE:
+                    snprintf(text, sizeof(text), "Immune!");
+                    color = ImVec4(0.9f, 0.9f, 0.9f, alpha);  // White for immune
+                    break;
                 default:
                     snprintf(text, sizeof(text), "%d", entry.amount);
                     color = ImVec4(1.0f, 1.0f, 1.0f, alpha);
