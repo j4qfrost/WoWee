@@ -12174,7 +12174,6 @@ void GameHandler::handleOtherPlayerMovement(network::Packet& packet) {
         (wireOp == wireOpcode(Opcode::MSG_MOVE_STOP_SWIM)) ||
         (wireOp == wireOpcode(Opcode::MSG_MOVE_FALL_LAND));
     const bool isJumpOpcode  = (wireOp == wireOpcode(Opcode::MSG_MOVE_JUMP));
-    const bool isSwimOpcode  = (wireOp == wireOpcode(Opcode::MSG_MOVE_START_SWIM));
 
     // For stop opcodes snap the entity position (duration=0) so it doesn't keep interpolating,
     // and pass durationMs=0 to the renderer so the Run-anim flash is suppressed.
@@ -12189,13 +12188,16 @@ void GameHandler::handleOtherPlayerMovement(network::Packet& packet) {
     }
 
     // Signal specific animation transitions that the per-frame sync can't detect reliably.
-    // WoW M2 animation IDs: 38=JumpMid (loops during airborne), 42=Swim
-    // animId=0 signals "exit swim mode" (MSG_MOVE_STOP_SWIM) so per-frame sync reverts to Stand.
-    const bool isStopSwimOpcode = (wireOp == wireOpcode(Opcode::MSG_MOVE_STOP_SWIM));
-    if (unitAnimHintCallback_) {
-        if (isJumpOpcode)         unitAnimHintCallback_(moverGuid, 38u);
-        else if (isSwimOpcode)    unitAnimHintCallback_(moverGuid, 42u);
-        else if (isStopSwimOpcode) unitAnimHintCallback_(moverGuid, 0u);
+    // WoW M2 animation ID 38=JumpMid (loops during airborne).
+    // Swim/walking state is now authoritative from the movement flags field via unitMoveFlagsCallback_.
+    if (unitAnimHintCallback_ && isJumpOpcode) {
+        unitAnimHintCallback_(moverGuid, 38u);
+    }
+
+    // Fire move-flags callback so application.cpp can update swimming/walking state
+    // from the flags field embedded in every movement packet (covers heartbeats and cold joins).
+    if (unitMoveFlagsCallback_) {
+        unitMoveFlagsCallback_(moverGuid, info.flags);
     }
 }
 

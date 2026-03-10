@@ -637,9 +637,14 @@ public:
     using SpellCastAnimCallback = std::function<void(uint64_t guid, bool start, bool isChannel)>;
     void setSpellCastAnimCallback(SpellCastAnimCallback cb) { spellCastAnimCallback_ = std::move(cb); }
 
-    // Unit animation hint: signal jump (animId=38) or swim (animId=42) for other players/NPCs
+    // Unit animation hint: signal jump (animId=38) for other players/NPCs
     using UnitAnimHintCallback = std::function<void(uint64_t guid, uint32_t animId)>;
     void setUnitAnimHintCallback(UnitAnimHintCallback cb) { unitAnimHintCallback_ = std::move(cb); }
+
+    // Unit move-flags callback: fired on every MSG_MOVE_* for other players with the raw flags field.
+    // Drives Walk(4) vs Run(5) selection and swim state initialization from heartbeat packets.
+    using UnitMoveFlagsCallback = std::function<void(uint64_t guid, uint32_t moveFlags)>;
+    void setUnitMoveFlagsCallback(UnitMoveFlagsCallback cb) { unitMoveFlagsCallback_ = std::move(cb); }
 
     // NPC swing callback (plays attack animation on NPC)
     using NpcSwingCallback = std::function<void(uint64_t guid)>;
@@ -2268,6 +2273,7 @@ private:
     MeleeSwingCallback meleeSwingCallback_;
     SpellCastAnimCallback spellCastAnimCallback_;
     UnitAnimHintCallback unitAnimHintCallback_;
+    UnitMoveFlagsCallback unitMoveFlagsCallback_;
     NpcSwingCallback npcSwingCallback_;
     NpcGreetingCallback npcGreetingCallback_;
     NpcFarewellCallback npcFarewellCallback_;

@@ -751,6 +751,7 @@ void Application::logoutToLogin() {
     creatureWeaponAttachAttempts_.clear();
     creatureWasMoving_.clear();
     creatureSwimmingState_.clear();
+    creatureWalkingState_.clear();
     deadCreatureGuids_.clear();
     nonRenderableCreatureDisplayIds_.clear();
     creaturePermanentFailureGuids_.clear();
@@ -1477,11 +1478,13 @@ void Application::update(float deltaTime) {
                         }
                         posIt->second = renderPos;
 
-                        // Drive movement animation: Run/Swim (5/42) when moving, Stand/SwimIdle (0/41) when idle.
+                        // Drive movement animation: Walk/Run/Swim (4/5/42) when moving,
+                        // Stand/SwimIdle (0/41) when idle. Walk(4) selected when WALKING flag is set.
                         // WoW M2 animation IDs: 4=Walk, 5=Run, 41=SwimIdle, 42=Swim.
                         // Only switch on transitions to avoid resetting animation time.
                         // Don't override Death (1) animation.
                         const bool isSwimmingNow = creatureSwimmingState_.count(guid) > 0;
+                        const bool isWalkingNow  = creatureWalkingState_.count(guid) > 0;
                         bool prevMoving = creatureWasMoving_[guid];
                         if (isMovingNow != prevMoving) {
                             creatureWasMoving_[guid] = isMovingNow;
@@ -1490,7 +1493,7 @@ void Application::update(float deltaTime) {
                             if (!gotState || curAnimId != 1 /*Death*/) {
                                 uint32_t targetAnim;
                                 if (isMovingNow)
-                                    targetAnim = isSwimmingNow ? 42u : 5u; // Swim vs Run
+                                    targetAnim = isSwimmingNow ? 42u : (isWalkingNow ? 4u : 5u); // Swim/Walk/Run
                                 else
                                     targetAnim = isSwimmingNow ? 41u : 0u; // SwimIdle vs Stand
                                 charRenderer->playAnimation(instanceId, targetAnim, /*loop=*/true);
@@ -2777,20 +2780,10 @@ void Application::setupUICallbacks() {
         }
     });
 
-    // Unit animation hint callback — play jump (38) or swim (42) on other players/NPCs.
-    // animId=42 (Swim): marks entity as swimming; per-frame sync will use SwimIdle(41) when stopped.
-    // animId=0:         clears swim state (MSG_MOVE_STOP_SWIM); per-frame sync reverts to Stand(0).
+    // Unit animation hint callback — plays jump (38=JumpMid) animation on other players/NPCs.
+    // Swim/walking state is now authoritative from the move-flags callback below.
     // animId=38 (JumpMid): airborne jump animation; land detection is via per-frame sync.
     gameHandler->setUnitAnimHintCallback([this](uint64_t guid, uint32_t animId) {
-        // Track swim state regardless of whether the instance is visible yet.
-        if (animId == 42u) {
-            creatureSwimmingState_[guid] = true;
-        } else if (animId == 0u) {
-            creatureSwimmingState_.erase(guid);
-            // Don't play Stand here — per-frame sync will do it when movement ceases.
-            return;
-        }
-
         if (!renderer) return;
         auto* cr = renderer->getCharacterRenderer();
         if (!cr) return;
@@ -2808,6 +2801,19 @@ void Application::setupUICallbacks() {
         uint32_t curAnim = 0; float curT = 0.0f, curDur = 0.0f;
         if (cr->getAnimationState(instanceId, curAnim, curT, curDur) && curAnim == 1) return;
         cr->playAnimation(instanceId, animId, /*loop=*/true);
+    });
+
+    // Unit move-flags callback — updates swimming and walking state from every MSG_MOVE_* packet.
+    // This is more reliable than opcode-based hints for cold joins and heartbeats:
+    // a player already swimming when we join will have SWIMMING set on the first heartbeat.
+    // Walking(4) vs Running(5) is also driven here from the WALKING flag.
+    gameHandler->setUnitMoveFlagsCallback([this](uint64_t guid, uint32_t moveFlags) {
+        const bool isSwimming = (moveFlags & static_cast<uint32_t>(game::MovementFlags::SWIMMING)) != 0;
+        const bool isWalking  = (moveFlags & static_cast<uint32_t>(game::MovementFlags::WALKING))  != 0;
+        if (isSwimming) creatureSwimmingState_[guid] = true;
+        else            creatureSwimmingState_.erase(guid);
+        if (isWalking)  creatureWalkingState_[guid] = true;
+        else            creatureWalkingState_.erase(guid);
     });
 
     // Emote animation callback — play server-driven emote animations on NPCs and other players
@@ -6927,6 +6933,7 @@ void Application::despawnOnlinePlayer(uint64_t guid) {
     onlinePlayerAppearance_.erase(guid);
     pendingOnlinePlayerEquipment_.erase(guid);
     creatureSwimmingState_.erase(guid);
+    creatureWalkingState_.erase(guid);
 }
 
 void Application::spawnOnlineGameObject(uint64_t guid, uint32_t entry, uint32_t displayId, float x, float y, float z, float orientation) {
@@ -8521,6 +8528,7 @@ void Application::despawnOnlineCreature(uint64_t guid) {
     creatureWeaponAttachAttempts_.erase(guid);
     creatureWasMoving_.erase(guid);
     creatureSwimmingState_.erase(guid);
+    creatureWalkingState_.erase(guid);
 
     LOG_DEBUG("Despawned creature: guid=0x", std::hex, guid, std::dec);
 }
