@@ -4147,7 +4147,7 @@ void GameHandler::handlePacket(network::Packet& packet) {
         case Opcode::SMSG_TRANSFER_PENDING: {
             // SMSG_TRANSFER_PENDING: uint32 mapId, then optional transport data
             uint32_t pendingMapId = packet.readUInt32();
-            LOG_WARNING("SMSG_TRANSFER_PENDING: mapId=", pendingMapId);
+            LOG_INFO("SMSG_TRANSFER_PENDING: mapId=", pendingMapId);
             // Optional: if remaining data, there's a transport entry + mapId
             if (packet.getReadPos() + 8 <= packet.getSize()) {
                 uint32_t transportEntry = packet.readUInt32();
@@ -5959,7 +5959,7 @@ void GameHandler::handleLoginVerifyWorld(network::Packet& packet) {
 
     // Initialize movement info with world entry position (server → canonical)
     glm::vec3 canonical = core::coords::serverToCanonical(glm::vec3(data.x, data.y, data.z));
-    LOG_WARNING("LOGIN_VERIFY_WORLD: server=(", data.x, ", ", data.y, ", ", data.z,
+    LOG_DEBUG("LOGIN_VERIFY_WORLD: server=(", data.x, ", ", data.y, ", ", data.z,
              ") canonical=(", canonical.x, ", ", canonical.y, ", ", canonical.z, ") mapId=", data.mapId);
     movementInfo.x = canonical.x;
     movementInfo.y = canonical.y;
@@ -15495,7 +15495,7 @@ void GameHandler::handleNewWorld(network::Packet& packet) {
     float serverZ = packet.readFloat();
     float orientation = packet.readFloat();
 
-    LOG_WARNING("SMSG_NEW_WORLD: mapId=", mapId,
+    LOG_INFO("SMSG_NEW_WORLD: mapId=", mapId,
              " pos=(", serverX, ", ", serverY, ", ", serverZ, ")",
              " orient=", orientation);
 
@@ -17361,7 +17361,7 @@ void GameHandler::handleShowBank(network::Packet& packet) {
     for (int i = 0; i < effectiveBankBagSlots_; i++) {
         if (inventory.getBankBagSize(i) > 0) filledBags++;
     }
-    LOG_WARNING("SMSG_SHOW_BANK: banker=0x", std::hex, bankerGuid_, std::dec,
+    LOG_INFO("SMSG_SHOW_BANK: banker=0x", std::hex, bankerGuid_, std::dec,
              " purchased=", static_cast<int>(inventory.getPurchasedBankBagSlots()),
              " filledBags=", filledBags,
              " effectiveBankBagSlots=", effectiveBankBagSlots_);
@@ -17370,7 +17370,7 @@ void GameHandler::handleShowBank(network::Packet& packet) {
 void GameHandler::handleBuyBankSlotResult(network::Packet& packet) {
     if (packet.getSize() - packet.getReadPos() < 4) return;
     uint32_t result = packet.readUInt32();
-    LOG_WARNING("SMSG_BUY_BANK_SLOT_RESULT: result=", result);
+    LOG_INFO("SMSG_BUY_BANK_SLOT_RESULT: result=", result);
     // AzerothCore/TrinityCore: 0=TOO_MANY, 1=INSUFFICIENT_FUNDS, 2=NOT_BANKER, 3=OK
     if (result == 3) {
         addSystemChatMessage("Bank slot purchased.");
