@@ -2442,8 +2442,9 @@ void Application::setupUICallbacks() {
     gameHandler->setCreatureMoveCallback([this](uint64_t guid, float x, float y, float z, uint32_t durationMs) {
         if (!renderer || !renderer->getCharacterRenderer()) return;
         uint32_t instanceId = 0;
+        bool isPlayer = false;
         auto pit = playerInstances_.find(guid);
-        if (pit != playerInstances_.end()) instanceId = pit->second;
+        if (pit != playerInstances_.end()) { instanceId = pit->second; isPlayer = true; }
         else {
             auto it = creatureInstances_.find(guid);
             if (it != creatureInstances_.end()) instanceId = it->second;
@@ -2452,6 +2453,18 @@ void Application::setupUICallbacks() {
             glm::vec3 renderPos = core::coords::canonicalToRender(glm::vec3(x, y, z));
             float durationSec = static_cast<float>(durationMs) / 1000.0f;
             renderer->getCharacterRenderer()->moveInstanceTo(instanceId, renderPos, durationSec);
+            // Play Run animation for the duration of the spline move (anim 4).
+            // Don't override Death animation (1). The per-frame sync loop will return to
+            // Stand when movement stops.
+            if (durationMs > 0) {
+                uint32_t curAnimId = 0; float curT = 0.0f, curDur = 0.0f;
+                auto* cr = renderer->getCharacterRenderer();
+                bool gotState = cr->getAnimationState(instanceId, curAnimId, curT, curDur);
+                if (!gotState || curAnimId != 1 /*Death*/) {
+                    cr->playAnimation(instanceId, 4u, /*loop=*/true);
+                }
+                if (!isPlayer) creatureWasMoving_[guid] = true;
+            }
         }
     });
 
