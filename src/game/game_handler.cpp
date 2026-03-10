@@ -759,14 +759,17 @@ void GameHandler::update(float deltaTime) {
             }
         }
 
-        // Tick down target cast bar
-        if (targetCasting_ && targetCastTimeRemaining_ > 0.0f) {
-            targetCastTimeRemaining_ -= deltaTime;
-            if (targetCastTimeRemaining_ <= 0.0f) {
-                targetCasting_           = false;
-                targetCastSpellId_       = 0;
-                targetCastTimeRemaining_ = 0.0f;
+        // Tick down all tracked unit cast bars
+        for (auto it = unitCastStates_.begin(); it != unitCastStates_.end(); ) {
+            auto& s = it->second;
+            if (s.casting && s.timeRemaining > 0.0f) {
+                s.timeRemaining -= deltaTime;
+                if (s.timeRemaining <= 0.0f) {
+                    it = unitCastStates_.erase(it);
+                    continue;
+                }
             }
+            ++it;
         }
 
         // Update spell cooldowns (Phase 3)
@@ -5700,6 +5703,7 @@ void GameHandler::selectCharacter(uint64_t characterGuid) {
     actionBar = {};
     playerAuras.clear();
     targetAuras.clear();
+    unitCastStates_.clear();
     petGuid_ = 0;
     playerXp_ = 0;
     playerNextLevelXp_ = 0;
@@ -8556,10 +8560,8 @@ void GameHandler::setTarget(uint64_t guid) {
 
     targetGuid = guid;
 
-    // Clear target cast bar when target changes
-    targetCasting_           = false;
-    targetCastSpellId_       = 0;
-    targetCastTimeRemaining_ = 0.0f;
+    // Clear previous target's cast bar on target change
+    // (the new target's cast state is naturally fetched from unitCastStates_ by GUID)
 
     // Inform server of target selection (Phase 1)
     if (state == WorldState::IN_WORLD && socket) {
@@ -12656,12 +12658,13 @@ void GameHandler::handleSpellStart(network::Packet& packet) {
     SpellStartData data;
     if (!packetParsers_->parseSpellStart(packet, data)) return;
 
-    // Track cast bar for the current target (for interrupt awareness)
-    if (data.casterUnit == targetGuid && data.castTime > 0) {
-        targetCasting_           = true;
-        targetCastSpellId_       = data.spellId;
-        targetCastTimeTotal_     = data.castTime / 1000.0f;
-        targetCastTimeRemaining_ = targetCastTimeTotal_;
+    // Track cast bar for any non-player caster (target frame + boss frames)
+    if (data.casterUnit != playerGuid && data.castTime > 0) {
+        auto& s = unitCastStates_[data.casterUnit];
+        s.casting       = true;
+        s.spellId       = data.spellId;
+        s.timeTotal     = data.castTime / 1000.0f;
+        s.timeRemaining = s.timeTotal;
     }
 
     // If this is the player's own cast, start cast bar
@@ -12736,12 +12739,8 @@ void GameHandler::handleSpellGo(network::Packet& packet) {
         castTimeRemaining = 0.0f;
     }
 
-    // Clear target cast bar when the target's spell lands
-    if (data.casterUnit == targetGuid) {
-        targetCasting_           = false;
-        targetCastSpellId_       = 0;
-        targetCastTimeRemaining_ = 0.0f;
-    }
+    // Clear unit cast bar when the spell lands (for any tracked unit)
+    unitCastStates_.erase(data.casterUnit);
 
     // Show miss/dodge/parry/etc combat text when player's spells miss targets
     if (data.casterUnit == playerGuid && !data.missTargets.empty()) {

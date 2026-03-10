@@ -5010,6 +5010,24 @@ void GameScreen::renderBossFrames(game::GameHandler& gameHandler) {
                 ImGui::PopStyleColor();
             }
 
+            // Boss cast bar — shown when the boss is casting (critical for interrupt)
+            if (auto* cs = gameHandler.getUnitCastState(bs.guid)) {
+                float castPct  = (cs->timeTotal > 0.0f)
+                    ? (cs->timeTotal - cs->timeRemaining) / cs->timeTotal : 0.0f;
+                uint32_t bspell = cs->spellId;
+                const std::string& bcastName = (bspell != 0)
+                    ? gameHandler.getSpellName(bspell) : "";
+                ImGui::PushStyleColor(ImGuiCol_PlotHistogram, ImVec4(0.9f, 0.3f, 0.2f, 1.0f));
+                char bcastLabel[72];
+                if (!bcastName.empty())
+                    snprintf(bcastLabel, sizeof(bcastLabel), "%s (%.1fs)",
+                             bcastName.c_str(), cs->timeRemaining);
+                else
+                    snprintf(bcastLabel, sizeof(bcastLabel), "Casting... (%.1fs)", cs->timeRemaining);
+                ImGui::ProgressBar(castPct, ImVec2(-1, 12), bcastLabel);
+                ImGui::PopStyleColor();
+            }
+
             ImGui::PopID();
             ImGui::Spacing();
         }

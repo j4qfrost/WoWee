@@ -513,15 +513,33 @@ public:
     float getCastProgress() const { return castTimeTotal > 0 ? (castTimeTotal - castTimeRemaining) / castTimeTotal : 0.0f; }
     float getCastTimeRemaining() const { return castTimeRemaining; }
 
-    // Target cast bar (shows when the current target is casting)
-    bool isTargetCasting() const { return targetCasting_; }
-    uint32_t getTargetCastSpellId() const { return targetCastSpellId_; }
-    float getTargetCastProgress() const {
-        return targetCastTimeTotal_ > 0.0f
-            ? (targetCastTimeTotal_ - targetCastTimeRemaining_) / targetCastTimeTotal_
-            : 0.0f;
+    // Unit cast state (tracked per GUID for target frame + boss frames)
+    struct UnitCastState {
+        bool     casting         = false;
+        uint32_t spellId         = 0;
+        float    timeRemaining   = 0.0f;
+        float    timeTotal       = 0.0f;
+    };
+    // Returns cast state for any unit by GUID (empty/non-casting if not found)
+    const UnitCastState* getUnitCastState(uint64_t guid) const {
+        auto it = unitCastStates_.find(guid);
+        return (it != unitCastStates_.end() && it->second.casting) ? &it->second : nullptr;
     }
-    float getTargetCastTimeRemaining() const { return targetCastTimeRemaining_; }
+    // Convenience helpers for the current target
+    bool isTargetCasting() const { return getUnitCastState(targetGuid) != nullptr; }
+    uint32_t getTargetCastSpellId() const {
+        auto* s = getUnitCastState(targetGuid);
+        return s ? s->spellId : 0;
+    }
+    float getTargetCastProgress() const {
+        auto* s = getUnitCastState(targetGuid);
+        return (s && s->timeTotal > 0.0f)
+            ? (s->timeTotal - s->timeRemaining) / s->timeTotal : 0.0f;
+    }
+    float getTargetCastTimeRemaining() const {
+        auto* s = getUnitCastState(targetGuid);
+        return s ? s->timeRemaining : 0.0f;
+    }
 
     // Talents
     uint8_t getActiveTalentSpec() const { return activeTalentSpec_; }
@@ -1764,11 +1782,8 @@ private:
     bool casting = false;
     uint32_t currentCastSpellId = 0;
     float castTimeRemaining = 0.0f;
-    // Target cast bar state (populated from SMSG_SPELL_START for the current target)
-    bool     targetCasting_          = false;
-    uint32_t targetCastSpellId_      = 0;
-    float    targetCastTimeRemaining_= 0.0f;
-    float    targetCastTimeTotal_    = 0.0f;
+    // Per-unit cast state (keyed by GUID, populated from SMSG_SPELL_START)
+    std::unordered_map<uint64_t, UnitCastState> unitCastStates_;
     uint64_t pendingGameObjectInteractGuid_ = 0;
 
     // Talents (dual-spec support)
