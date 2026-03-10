@@ -4597,13 +4597,24 @@ void GameScreen::renderNameplates(game::GameHandler& gameHandler) {
         drawList->AddRectFilled(ImVec2(barX,                 sy), ImVec2(barX + barW * healthPct,   sy + barH), barColor,   2.0f);
         drawList->AddRect       (ImVec2(barX - 1.0f, sy - 1.0f), ImVec2(barX + barW + 1.0f, sy + barH + 1.0f), borderColor, 2.0f);
 
-        // Name label with drop shadow
-        const char* name = unit->getName().c_str();
-        ImVec2 textSize = ImGui::CalcTextSize(name);
+        // Name + level label above health bar
+        uint32_t level = unit->getLevel();
+        char labelBuf[96];
+        if (level > 0) {
+            uint32_t playerLevel = gameHandler.getPlayerLevel();
+            // Show skull for units more than 10 levels above the player
+            if (playerLevel > 0 && level > playerLevel + 10)
+                snprintf(labelBuf, sizeof(labelBuf), "?? %s", unit->getName().c_str());
+            else
+                snprintf(labelBuf, sizeof(labelBuf), "%u %s", level, unit->getName().c_str());
+        } else {
+            snprintf(labelBuf, sizeof(labelBuf), "%s", unit->getName().c_str());
+        }
+        ImVec2 textSize = ImGui::CalcTextSize(labelBuf);
         float nameX = sx - textSize.x * 0.5f;
         float nameY = sy - barH - 12.0f;
-        drawList->AddText(ImVec2(nameX + 1.0f, nameY + 1.0f), IM_COL32(0, 0, 0, A(160)), name);
-        drawList->AddText(ImVec2(nameX,         nameY),         IM_COL32(255, 255, 255, A(220)), name);
+        drawList->AddText(ImVec2(nameX + 1.0f, nameY + 1.0f), IM_COL32(0, 0, 0, A(160)), labelBuf);
+        drawList->AddText(ImVec2(nameX,         nameY),         IM_COL32(255, 255, 255, A(220)), labelBuf);
     }
 }
 
