@@ -447,9 +447,9 @@ bool ClassicPacketParsers::parseAttackerStateUpdate(network::Packet& packet, Att
         data.blocked = packet.readUInt32();
     }
 
-    LOG_INFO("[Classic] Melee hit: ", data.totalDamage, " damage",
-             data.isCrit() ? " (CRIT)" : "",
-             data.isMiss() ? " (MISS)" : "");
+    LOG_DEBUG("[Classic] Melee hit: ", data.totalDamage, " damage",
+              data.isCrit() ? " (CRIT)" : "",
+              data.isMiss() ? " (MISS)" : "");
     return true;
 }
 
@@ -484,8 +484,8 @@ bool ClassicPacketParsers::parseSpellDamageLog(network::Packet& packet, SpellDam
     data.isCrit     = (flags & 0x02) != 0;
     data.overkill   = 0;  // no overkill field in Vanilla (same as TBC)
 
-    LOG_INFO("[Classic] Spell damage: spellId=", data.spellId, " dmg=", data.damage,
-             data.isCrit ? " CRIT" : "");
+    LOG_DEBUG("[Classic] Spell damage: spellId=", data.spellId, " dmg=", data.damage,
+              data.isCrit ? " CRIT" : "");
     return true;
 }
 
@@ -510,8 +510,8 @@ bool ClassicPacketParsers::parseSpellHealLog(network::Packet& packet, SpellHealL
     data.overheal = packet.readUInt32();
     data.isCrit   = (packet.readUInt8() != 0);
 
-    LOG_INFO("[Classic] Spell heal: spellId=", data.spellId, " heal=", data.heal,
-             data.isCrit ? " CRIT" : "");
+    LOG_DEBUG("[Classic] Spell heal: spellId=", data.spellId, " heal=", data.heal,
+              data.isCrit ? " CRIT" : "");
     return true;
 }
 
@@ -700,13 +700,9 @@ bool ClassicPacketParsers::parseCharEnum(network::Packet& packet, CharEnumRespon
             character.equipment.push_back(item);
         }
 
-        LOG_INFO("  Character ", (int)(i + 1), ": ", character.name);
-        LOG_INFO("    GUID: 0x", std::hex, character.guid, std::dec);
-        LOG_INFO("    ", getRaceName(character.race), " ",
-                 getClassName(character.characterClass), " (",
-                 getGenderName(character.gender), ")");
-        LOG_INFO("    Level: ", (int)character.level);
-        LOG_INFO("    Location: Zone ", character.zoneId, ", Map ", character.mapId);
+        LOG_DEBUG("  Character ", (int)(i + 1), ": ", character.name,
+                  " (", getRaceName(character.race), " ", getClassName(character.characterClass),
+                  " level ", (int)character.level, " zone ", character.zoneId, ")");
 
         response.characters.push_back(character);
     }

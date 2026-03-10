@@ -355,13 +355,9 @@ bool TbcPacketParsers::parseCharEnum(network::Packet& packet, CharEnumResponse& 
             character.equipment.push_back(item);
         }
 
-        LOG_INFO("  Character ", (int)(i + 1), ": ", character.name);
-        LOG_INFO("    GUID: 0x", std::hex, character.guid, std::dec);
-        LOG_INFO("    ", getRaceName(character.race), " ",
-                 getClassName(character.characterClass), " (",
-                 getGenderName(character.gender), ")");
-        LOG_INFO("    Level: ", (int)character.level);
-        LOG_INFO("    Location: Zone ", character.zoneId, ", Map ", character.mapId);
+        LOG_DEBUG("  Character ", (int)(i + 1), ": ", character.name,
+                  " (", getRaceName(character.race), " ", getClassName(character.characterClass),
+                  " level ", (int)character.level, " zone ", character.zoneId, ")");
 
         response.characters.push_back(character);
     }
@@ -1131,9 +1127,9 @@ bool TbcPacketParsers::parseAttackerStateUpdate(network::Packet& packet, Attacke
         data.blocked = packet.readUInt32();
     }
 
-    LOG_INFO("[TBC] Melee hit: ", data.totalDamage, " damage",
-             data.isCrit() ? " (CRIT)" : "",
-             data.isMiss() ? " (MISS)" : "");
+    LOG_DEBUG("[TBC] Melee hit: ", data.totalDamage, " damage",
+              data.isCrit() ? " (CRIT)" : "",
+              data.isMiss() ? " (MISS)" : "");
     return true;
 }
 
@@ -1163,8 +1159,8 @@ bool TbcPacketParsers::parseSpellDamageLog(network::Packet& packet, SpellDamageL
     // TBC does not have an overkill field here
     data.overkill = 0;
 
-    LOG_INFO("[TBC] Spell damage: spellId=", data.spellId, " dmg=", data.damage,
-             data.isCrit ? " CRIT" : "");
+    LOG_DEBUG("[TBC] Spell damage: spellId=", data.spellId, " dmg=", data.damage,
+              data.isCrit ? " CRIT" : "");
     return true;
 }
 
@@ -1187,8 +1183,8 @@ bool TbcPacketParsers::parseSpellHealLog(network::Packet& packet, SpellHealLogDa
         data.isCrit = (critFlag != 0);
     }
 
-    LOG_INFO("[TBC] Spell heal: spellId=", data.spellId, " heal=", data.heal,
-             data.isCrit ? " CRIT" : "");
+    LOG_DEBUG("[TBC] Spell heal: spellId=", data.spellId, " heal=", data.heal,
+              data.isCrit ? " CRIT" : "");
     return true;
 }
 
