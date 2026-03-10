@@ -6039,6 +6039,15 @@ void GameHandler::handleLoginVerifyWorld(network::Packet& packet) {
     encounterUnitGuids_.fill(0);
     raidTargetGuids_.fill(0);
 
+    // Reset talent initialization so the first SMSG_TALENTS_INFO after login
+    // correctly sets the active spec (static locals don't reset across logins)
+    talentsInitialized_ = false;
+    learnedTalents_[0].clear();
+    learnedTalents_[1].clear();
+    unspentTalentPoints_[0] = 0;
+    unspentTalentPoints_[1] = 0;
+    activeTalentSpec_ = 0;
+
     // Suppress area triggers on initial login — prevents exit portals from
     // immediately firing when spawning inside a dungeon/instance.
     activeAreaTriggers_.clear();
@@ -13220,10 +13229,9 @@ void GameHandler::handleTalentsInfo(network::Packet& packet) {
              " unspent=", (int)unspentTalentPoints_[data.talentSpec],
              " learned=", learnedTalents_[data.talentSpec].size());
 
-    // If this is the first spec received, set it as active
-    static bool firstSpecReceived = false;
-    if (!firstSpecReceived) {
-        firstSpecReceived = true;
+    // If this is the first spec received after login, set it as the active spec
+    if (!talentsInitialized_) {
+        talentsInitialized_ = true;
         activeTalentSpec_ = data.talentSpec;
 
         // Show message to player about active spec

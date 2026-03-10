@@ -1841,6 +1841,7 @@ private:
     std::unordered_map<uint32_t, TalentEntry> talentCache_;      // talentId -> entry
     std::unordered_map<uint32_t, TalentTabEntry> talentTabCache_; // tabId -> entry
     bool talentDbcLoaded_ = false;
+    bool talentsInitialized_ = false;                           // Reset on world entry; guards first-spec selection
 
     // ---- Area trigger detection ----
     struct AreaTriggerEntry {
