@@ -1179,6 +1179,12 @@ public:
     bool isHovering() const {
         return (movementInfo.flags & static_cast<uint32_t>(MovementFlags::HOVER)) != 0;
     }
+    bool isSwimming() const {
+        return (movementInfo.flags & static_cast<uint32_t>(MovementFlags::SWIMMING)) != 0;
+    }
+    // Set the character pitch angle (radians) for movement packets (flight / swimming).
+    // Positive = nose up, negative = nose down.
+    void setMovementPitch(float radians) { movementInfo.pitch = radians; }
     void dismount();
 
     // Taxi / Flight Paths

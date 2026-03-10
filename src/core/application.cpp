@@ -1022,6 +1022,29 @@ void Application::update(float deltaTime) {
                     renderer->getCameraController()->setWaterWalkActive(gameHandler->isWaterWalking());
                     renderer->getCameraController()->setFlyingActive(gameHandler->isPlayerFlying());
                     renderer->getCameraController()->setHoverActive(gameHandler->isHovering());
+
+                    // Sync camera forward pitch to movement packets during flight / swimming.
+                    // The server writes the pitch field when FLYING or SWIMMING flags are set;
+                    // without this sync it would always be 0 (horizontal), causing other
+                    // players to see the character flying flat even when pitching up/down.
+                    if (gameHandler->isPlayerFlying() || gameHandler->isSwimming()) {
+                        if (auto* cam = renderer->getCamera()) {
+                            glm::vec3 fwd = cam->getForward();
+                            float len = glm::length(fwd);
+                            if (len > 1e-4f) {
+                                float pitchRad = std::asin(std::clamp(fwd.z / len, -1.0f, 1.0f));
+                                gameHandler->setMovementPitch(pitchRad);
+                                // Tilt the mount/character model to match flight direction
+                                // (taxi flight uses setTaxiOrientationCallback for this instead)
+                                if (gameHandler->isPlayerFlying() && gameHandler->isMounted()) {
+                                    renderer->setMountPitchRoll(pitchRad, 0.0f);
+                                }
+                            }
+                        }
+                    } else if (gameHandler->isMounted()) {
+                        // Reset mount pitch when not flying
+                        renderer->setMountPitchRoll(0.0f, 0.0f);
+                    }
                 }
 
                 bool onTaxi = gameHandler &&
