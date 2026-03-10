@@ -1510,20 +1510,30 @@ network::Packet TextEmotePacket::build(uint32_t textEmoteId, uint64_t targetGuid
     return packet;
 }
 
-bool TextEmoteParser::parse(network::Packet& packet, TextEmoteData& data) {
+bool TextEmoteParser::parse(network::Packet& packet, TextEmoteData& data, bool legacyFormat) {
     size_t bytesLeft = packet.getSize() - packet.getReadPos();
     if (bytesLeft < 20) {
         LOG_WARNING("SMSG_TEXT_EMOTE too short: ", bytesLeft, " bytes");
         return false;
     }
-    data.senderGuid = packet.readUInt64();
-    data.textEmoteId = packet.readUInt32();
-    data.emoteNum = packet.readUInt32();
+
+    if (legacyFormat) {
+        // Classic 1.12 / TBC 2.4.3: textEmoteId(u32) + emoteNum(u32) + senderGuid(u64)
+        data.textEmoteId = packet.readUInt32();
+        data.emoteNum    = packet.readUInt32();
+        data.senderGuid  = packet.readUInt64();
+    } else {
+        // WotLK 3.3.5a: senderGuid(u64) + textEmoteId(u32) + emoteNum(u32)
+        data.senderGuid  = packet.readUInt64();
+        data.textEmoteId = packet.readUInt32();
+        data.emoteNum    = packet.readUInt32();
+    }
+
     uint32_t nameLen = packet.readUInt32();
     if (nameLen > 0 && nameLen <= 256) {
         data.targetName = packet.readString();
     } else if (nameLen > 0) {
-        // Skip garbage
+        // Implausible name length — misaligned read
         return false;
     }
     return true;

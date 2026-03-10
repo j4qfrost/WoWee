@@ -8560,8 +8560,11 @@ void GameHandler::sendTextEmote(uint32_t textEmoteId, uint64_t targetGuid) {
 }
 
 void GameHandler::handleTextEmote(network::Packet& packet) {
+    // Classic 1.12 and TBC 2.4.3 send: textEmoteId(u32) + emoteNum(u32) + senderGuid(u64) + nameLen(u32) + name
+    // WotLK 3.3.5a reversed this to: senderGuid(u64) + textEmoteId(u32) + emoteNum(u32) + nameLen(u32) + name
+    const bool legacyFormat = isClassicLikeExpansion() || isActiveExpansion("tbc");
     TextEmoteData data;
-    if (!TextEmoteParser::parse(packet, data)) {
+    if (!TextEmoteParser::parse(packet, data, legacyFormat)) {
         LOG_WARNING("Failed to parse SMSG_TEXT_EMOTE");
         return;
     }

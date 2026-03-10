@@ -717,7 +717,9 @@ struct TextEmoteData {
  */
 class TextEmoteParser {
 public:
-    static bool parse(network::Packet& packet, TextEmoteData& data);
+    // legacyFormat: Classic 1.12 and TBC 2.4.3 send textEmoteId+emoteNum first, then senderGuid.
+    //               WotLK 3.3.5a reverses this: senderGuid first, then textEmoteId+emoteNum.
+    static bool parse(network::Packet& packet, TextEmoteData& data, bool legacyFormat = false);
 };
 
 // ============================================================
