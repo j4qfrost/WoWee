@@ -1584,6 +1584,16 @@ bool ClassicPacketParsers::parseQuestDetails(network::Packet& packet, QuestDetai
     /*activateAccept*/ packet.readUInt8();
     data.suggestedPlayers = packet.readUInt32();
 
+    // Vanilla 1.12: emote section before reward items
+    // Format: emoteCount(u32) + [delay(u32) + type(u32)] × emoteCount
+    if (packet.getReadPos() + 4 <= packet.getSize()) {
+        uint32_t emoteCount = packet.readUInt32();
+        for (uint32_t i = 0; i < emoteCount && packet.getReadPos() + 8 <= packet.getSize(); ++i) {
+            packet.readUInt32(); // delay
+            packet.readUInt32(); // type
+        }
+    }
+
     // Choice reward items: variable count + 3 uint32s each
     if (packet.getReadPos() + 4 <= packet.getSize()) {
         uint32_t choiceCount = packet.readUInt32();
