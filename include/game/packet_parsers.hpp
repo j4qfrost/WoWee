@@ -93,6 +93,11 @@ public:
         return SpellDamageLogParser::parse(packet, data);
     }
 
+    /** Parse SMSG_SPELLHEALLOG */
+    virtual bool parseSpellHealLog(network::Packet& packet, SpellHealLogData& data) {
+        return SpellHealLogParser::parse(packet, data);
+    }
+
     // --- Spells ---
 
     /** Parse SMSG_INITIAL_SPELLS */
@@ -302,6 +307,8 @@ public:
     bool parseAttackerStateUpdate(network::Packet& packet, AttackerStateUpdateData& data) override;
     // TBC 2.4.3 SMSG_SPELLNONMELEEDAMAGELOG uses full uint64 GUIDs (WotLK uses packed GUIDs)
     bool parseSpellDamageLog(network::Packet& packet, SpellDamageLogData& data) override;
+    // TBC 2.4.3 SMSG_SPELLHEALLOG uses full uint64 GUIDs (WotLK uses packed GUIDs)
+    bool parseSpellHealLog(network::Packet& packet, SpellHealLogData& data) override;
 };
 
 /**

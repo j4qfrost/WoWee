@@ -1047,5 +1047,29 @@ bool TbcPacketParsers::parseSpellDamageLog(network::Packet& packet, SpellDamageL
     return true;
 }
 
+// ============================================================================
+// TbcPacketParsers::parseSpellHealLog — TBC 2.4.3 SMSG_SPELLHEALLOG
+//
+// TBC uses full uint64 GUIDs; WotLK uses packed GUIDs.
+// ============================================================================
+bool TbcPacketParsers::parseSpellHealLog(network::Packet& packet, SpellHealLogData& data) {
+    if (packet.getSize() - packet.getReadPos() < 25) return false;
+
+    data.targetGuid  = packet.readUInt64();   // full GUID in TBC
+    data.casterGuid  = packet.readUInt64();   // full GUID in TBC
+    data.spellId     = packet.readUInt32();
+    data.heal        = packet.readUInt32();
+    data.overheal    = packet.readUInt32();
+    // TBC has no absorbed field in SMSG_SPELLHEALLOG; skip crit flag
+    if (packet.getReadPos() < packet.getSize()) {
+        uint8_t critFlag = packet.readUInt8();
+        data.isCrit = (critFlag != 0);
+    }
+
+    LOG_INFO("[TBC] Spell heal: spellId=", data.spellId, " heal=", data.heal,
+             data.isCrit ? " CRIT" : "");
+    return true;
+}
+
 } // namespace game
 } // namespace wowee

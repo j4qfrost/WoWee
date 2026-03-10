@@ -12079,7 +12079,7 @@ void GameHandler::handleMonsterMoveTransport(network::Packet& packet) {
 
 void GameHandler::handleAttackerStateUpdate(network::Packet& packet) {
     AttackerStateUpdateData data;
-    if (!AttackerStateUpdateParser::parse(packet, data)) return;
+    if (!packetParsers_->parseAttackerStateUpdate(packet, data)) return;
 
     bool isPlayerAttacker = (data.attackerGuid == playerGuid);
     bool isPlayerTarget = (data.targetGuid == playerGuid);
@@ -12141,7 +12141,7 @@ void GameHandler::handleAttackerStateUpdate(network::Packet& packet) {
 
 void GameHandler::handleSpellDamageLog(network::Packet& packet) {
     SpellDamageLogData data;
-    if (!SpellDamageLogParser::parse(packet, data)) return;
+    if (!packetParsers_->parseSpellDamageLog(packet, data)) return;
 
     bool isPlayerSource = (data.attackerGuid == playerGuid);
     bool isPlayerTarget = (data.targetGuid == playerGuid);
@@ -12158,7 +12158,7 @@ void GameHandler::handleSpellDamageLog(network::Packet& packet) {
 
 void GameHandler::handleSpellHealLog(network::Packet& packet) {
     SpellHealLogData data;
-    if (!SpellHealLogParser::parse(packet, data)) return;
+    if (!packetParsers_->parseSpellHealLog(packet, data)) return;
 
     bool isPlayerSource = (data.casterGuid == playerGuid);
     bool isPlayerTarget = (data.targetGuid == playerGuid);
