@@ -8399,6 +8399,14 @@ void GameHandler::handleDestroyObject(network::Packet& packet) {
         if (entity) {
             if (entity->getType() == ObjectType::UNIT && creatureDespawnCallback_) {
                 creatureDespawnCallback_(data.guid);
+            } else if (entity->getType() == ObjectType::PLAYER && playerDespawnCallback_) {
+                // Player entities also need renderer cleanup on DESTROY_OBJECT, not just out-of-range.
+                playerDespawnCallback_(data.guid);
+                otherPlayerVisibleItemEntries_.erase(data.guid);
+                otherPlayerVisibleDirty_.erase(data.guid);
+                otherPlayerMoveTimeMs_.erase(data.guid);
+                inspectedPlayerItemEntries_.erase(data.guid);
+                pendingAutoInspect_.erase(data.guid);
             } else if (entity->getType() == ObjectType::GAMEOBJECT && gameObjectDespawnCallback_) {
                 gameObjectDespawnCallback_(data.guid);
             }
