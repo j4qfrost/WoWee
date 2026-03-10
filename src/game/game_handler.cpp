@@ -4895,13 +4895,16 @@ void GameHandler::handlePacket(network::Packet& packet) {
             break;
 
         case Opcode::SMSG_RESUME_CAST_BAR: {
-            // packed_guid caster + packed_guid target + uint32 spellId
-            // + uint32 remainingMs + uint32 totalMs + uint8 schoolMask
+            // WotLK: packed_guid caster + packed_guid target + uint32 spellId + uint32 remainingMs + uint32 totalMs + uint8 schoolMask
+            // TBC/Classic: uint64 caster + uint64 target + ...
+            const bool rcbTbc = isClassicLikeExpansion() || isActiveExpansion("tbc");
             auto remaining = [&]() { return packet.getSize() - packet.getReadPos(); };
-            if (remaining() < 1) break;
-            uint64_t caster = UpdateObjectParser::readPackedGuid(packet);
-            if (remaining() < 1) break;
-            (void)UpdateObjectParser::readPackedGuid(packet); // target
+            if (remaining() < (rcbTbc ? 8u : 1u)) break;
+            uint64_t caster = rcbTbc
+                ? packet.readUInt64() : UpdateObjectParser::readPackedGuid(packet);
+            if (remaining() < (rcbTbc ? 8u : 1u)) break;
+            if (rcbTbc) packet.readUInt64(); // target (discard)
+            else (void)UpdateObjectParser::readPackedGuid(packet); // target
             if (remaining() < 12) break;
             uint32_t spellId   = packet.readUInt32();
             uint32_t remainMs  = packet.readUInt32();
@@ -10082,9 +10085,12 @@ void GameHandler::handleInspectResults(network::Packet& packet) {
     }
 
     // talentType == 1: inspect result
-    if (packet.getSize() - packet.getReadPos() < 2) return;
+    // WotLK: packed GUID; TBC: full uint64
+    const bool talentTbc = isClassicLikeExpansion() || isActiveExpansion("tbc");
+    if (packet.getSize() - packet.getReadPos() < (talentTbc ? 8u : 2u)) return;
 
-    uint64_t guid = UpdateObjectParser::readPackedGuid(packet);
+    uint64_t guid = talentTbc
+        ? packet.readUInt64() : UpdateObjectParser::readPackedGuid(packet);
     if (guid == 0) return;
 
     size_t bytesLeft = packet.getSize() - packet.getReadPos();
@@ -15390,14 +15396,17 @@ void GameHandler::addSystemChatMessage(const std::string& message) {
 // ============================================================
 
 void GameHandler::handleTeleportAck(network::Packet& packet) {
-    // MSG_MOVE_TELEPORT_ACK (server→client): packedGuid + u32 counter + u32 time
-    // followed by movement info with the new position
-    if (packet.getSize() - packet.getReadPos() < 4) {
+    // MSG_MOVE_TELEPORT_ACK (server→client):
+    // WotLK: packed GUID + u32 counter + u32 time + movement info with new position
+    // TBC/Classic: uint64 + u32 counter + u32 time + movement info
+    const bool taTbc = isClassicLikeExpansion() || isActiveExpansion("tbc");
+    if (packet.getSize() - packet.getReadPos() < (taTbc ? 8u : 4u)) {
         LOG_WARNING("MSG_MOVE_TELEPORT_ACK too short");
         return;
     }
 
-    uint64_t guid = UpdateObjectParser::readPackedGuid(packet);
+    uint64_t guid = taTbc
+        ? packet.readUInt64() : UpdateObjectParser::readPackedGuid(packet);
     if (packet.getSize() - packet.getReadPos() < 4) return;
     uint32_t counter = packet.readUInt32();
 
