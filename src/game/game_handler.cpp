@@ -2401,9 +2401,13 @@ void GameHandler::handlePacket(network::Packet& packet) {
             uint64_t guid = UpdateObjectParser::readPackedGuid(packet);
             if (packet.getSize() - packet.getReadPos() < 4) break;
             float speed = packet.readFloat();
-            if (guid == playerGuid && std::isfinite(speed) && speed > 0.1f && speed < 100.0f &&
-                *logicalOp == Opcode::SMSG_SPLINE_SET_RUN_SPEED) {
-                serverRunSpeed_ = speed;
+            if (guid == playerGuid && std::isfinite(speed) && speed > 0.01f && speed < 200.0f) {
+                if (*logicalOp == Opcode::SMSG_SPLINE_SET_RUN_SPEED)
+                    serverRunSpeed_ = speed;
+                else if (*logicalOp == Opcode::SMSG_SPLINE_SET_RUN_BACK_SPEED)
+                    serverRunBackSpeed_ = speed;
+                else if (*logicalOp == Opcode::SMSG_SPLINE_SET_SWIM_SPEED)
+                    serverSwimSpeed_ = speed;
             }
             break;
         }
@@ -5190,11 +5194,22 @@ void GameHandler::handlePacket(network::Packet& packet) {
         case Opcode::SMSG_SPLINE_SET_WALK_SPEED:
         case Opcode::SMSG_SPLINE_SET_TURN_RATE:
         case Opcode::SMSG_SPLINE_SET_PITCH_RATE: {
-            // Minimal parse: PackedGuid + float speed (no per-entity speed store yet)
-            if (packet.getSize() - packet.getReadPos() >= 5) {
-                (void)UpdateObjectParser::readPackedGuid(packet);
-                if (packet.getSize() - packet.getReadPos() >= 4)
-                    (void)packet.readFloat();
+            // Minimal parse: PackedGuid + float speed
+            if (packet.getSize() - packet.getReadPos() < 5) break;
+            uint64_t sGuid = UpdateObjectParser::readPackedGuid(packet);
+            if (packet.getSize() - packet.getReadPos() < 4) break;
+            float sSpeed = packet.readFloat();
+            if (sGuid == playerGuid && std::isfinite(sSpeed) && sSpeed > 0.01f && sSpeed < 200.0f) {
+                if (*logicalOp == Opcode::SMSG_SPLINE_SET_FLIGHT_SPEED)
+                    serverFlightSpeed_ = sSpeed;
+                else if (*logicalOp == Opcode::SMSG_SPLINE_SET_FLIGHT_BACK_SPEED)
+                    serverFlightBackSpeed_ = sSpeed;
+                else if (*logicalOp == Opcode::SMSG_SPLINE_SET_SWIM_BACK_SPEED)
+                    serverSwimBackSpeed_ = sSpeed;
+                else if (*logicalOp == Opcode::SMSG_SPLINE_SET_WALK_SPEED)
+                    serverWalkSpeed_ = sSpeed;
+                else if (*logicalOp == Opcode::SMSG_SPLINE_SET_TURN_RATE)
+                    serverTurnRate_ = sSpeed;  // rad/s
             }
             break;
         }

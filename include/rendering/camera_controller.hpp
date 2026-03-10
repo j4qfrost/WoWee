@@ -98,6 +98,8 @@ public:
     void setFlightSpeedOverride(float speed) { flightSpeedOverride_ = speed; }
     void setFlightBackSpeedOverride(float speed) { flightBackSpeedOverride_ = speed; }
     void setRunBackSpeedOverride(float speed) { runBackSpeedOverride_ = speed; }
+    // Server turn rate in rad/s (SMSG_FORCE_TURN_RATE_CHANGE); 0 = use WOW_TURN_SPEED default
+    void setTurnRateOverride(float rateRadS) { turnRateOverride_ = rateRadS; }
     void setMovementRooted(bool rooted) { movementRooted_ = rooted; }
     bool isMovementRooted() const { return movementRooted_; }
     void setGravityDisabled(bool disabled) { gravityDisabled_ = disabled; }
@@ -287,6 +289,7 @@ private:
     float flightSpeedOverride_ = 0.0f;
     float flightBackSpeedOverride_ = 0.0f;
     float runBackSpeedOverride_ = 0.0f;
+    float turnRateOverride_ = 0.0f;  // rad/s; 0 = WOW_TURN_SPEED default (π rad/s)
     // Server-driven root state: when true, block all horizontal movement input.
     bool movementRooted_ = false;
     // Server-driven gravity disable (levitate/hover): skip gravity accumulation.

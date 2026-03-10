@@ -298,11 +298,16 @@ void CameraController::update(float deltaTime) {
         nowStrafeRight = !movBlocked && (keyD || keyE);
     }
 
-    // Keyboard turning updates camera yaw (character follows yaw in renderer)
+    // Keyboard turning updates camera yaw (character follows yaw in renderer).
+    // Use server turn rate (rad/s) when set; otherwise fall back to WOW_TURN_SPEED (deg/s).
+    const float activeTurnSpeedDeg = (turnRateOverride_ > 0.0f && turnRateOverride_ < 20.0f
+                                       && !std::isnan(turnRateOverride_))
+                                         ? glm::degrees(turnRateOverride_)
+                                         : WOW_TURN_SPEED;
     if (nowTurnLeft && !nowTurnRight) {
-        yaw += WOW_TURN_SPEED * deltaTime;
+        yaw += activeTurnSpeedDeg * deltaTime;
     } else if (nowTurnRight && !nowTurnLeft) {
-        yaw -= WOW_TURN_SPEED * deltaTime;
+        yaw -= activeTurnSpeedDeg * deltaTime;
     }
     if (nowTurnLeft || nowTurnRight) {
         camera->setRotation(yaw, pitch);
