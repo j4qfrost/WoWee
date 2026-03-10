@@ -11093,10 +11093,13 @@ void GameHandler::handleForceRunSpeedChange(network::Packet& packet) {
 
 void GameHandler::handleForceMoveRootState(network::Packet& packet, bool rooted) {
     // Packet is server movement control update:
-    // packedGuid + uint32 counter + [optional unknown field(s)].
+    // WotLK: packed GUID + uint32 counter + [optional unknown field(s)]
+    // TBC/Classic: full uint64 + uint32 counter
     // We always ACK with current movement state, same pattern as speed-change ACKs.
-    if (packet.getSize() - packet.getReadPos() < 2) return;
-    uint64_t guid = UpdateObjectParser::readPackedGuid(packet);
+    const bool rootTbc = isClassicLikeExpansion() || isActiveExpansion("tbc");
+    if (packet.getSize() - packet.getReadPos() < (rootTbc ? 8u : 2u)) return;
+    uint64_t guid = rootTbc
+        ? packet.readUInt64() : UpdateObjectParser::readPackedGuid(packet);
     if (packet.getSize() - packet.getReadPos() < 4) return;
     uint32_t counter = packet.readUInt32();
 
