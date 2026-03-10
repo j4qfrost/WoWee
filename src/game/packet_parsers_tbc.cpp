@@ -497,6 +497,152 @@ bool TbcPacketParsers::parseUpdateObject(network::Packet& packet, UpdateObjectDa
     return false;
 }
 
+// ============================================================================
+// TBC 2.4.3 SMSG_MONSTER_MOVE
+// Identical to WotLK except WotLK added a uint8 unk byte immediately after the
+// packed GUID (toggles MOVEMENTFLAG2_UNK7). TBC does NOT have this byte.
+// Without this override, all NPC movement positions/durations are offset by 1
+// byte and parse as garbage.
+// ============================================================================
+bool TbcPacketParsers::parseMonsterMove(network::Packet& packet, MonsterMoveData& data) {
+    data.guid = UpdateObjectParser::readPackedGuid(packet);
+    if (data.guid == 0) return false;
+    // No unk byte here in TBC 2.4.3
+
+    if (packet.getReadPos() + 12 > packet.getSize()) return false;
+    data.x = packet.readFloat();
+    data.y = packet.readFloat();
+    data.z = packet.readFloat();
+
+    if (packet.getReadPos() + 4 > packet.getSize()) return false;
+    packet.readUInt32(); // splineId
+
+    if (packet.getReadPos() >= packet.getSize()) return false;
+    data.moveType = packet.readUInt8();
+
+    if (data.moveType == 1) {
+        data.destX = data.x;
+        data.destY = data.y;
+        data.destZ = data.z;
+        data.hasDest = false;
+        return true;
+    }
+
+    if (data.moveType == 2) {
+        if (packet.getReadPos() + 12 > packet.getSize()) return false;
+        packet.readFloat(); packet.readFloat(); packet.readFloat();
+    } else if (data.moveType == 3) {
+        if (packet.getReadPos() + 8 > packet.getSize()) return false;
+        data.facingTarget = packet.readUInt64();
+    } else if (data.moveType == 4) {
+        if (packet.getReadPos() + 4 > packet.getSize()) return false;
+        data.facingAngle = packet.readFloat();
+    }
+
+    if (packet.getReadPos() + 4 > packet.getSize()) return false;
+    data.splineFlags = packet.readUInt32();
+
+    // TBC 2.4.3 SplineFlags animation bit is same as WotLK: 0x00400000
+    if (data.splineFlags & 0x00400000) {
+        if (packet.getReadPos() + 5 > packet.getSize()) return false;
+        packet.readUInt8();  // animationType
+        packet.readUInt32(); // effectStartTime
+    }
+
+    if (packet.getReadPos() + 4 > packet.getSize()) return false;
+    data.duration = packet.readUInt32();
+
+    if (data.splineFlags & 0x00000800) {
+        if (packet.getReadPos() + 8 > packet.getSize()) return false;
+        packet.readFloat();  // verticalAcceleration
+        packet.readUInt32(); // effectStartTime
+    }
+
+    if (packet.getReadPos() + 4 > packet.getSize()) return false;
+    uint32_t pointCount = packet.readUInt32();
+    if (pointCount == 0) return true;
+    if (pointCount > 16384) return false;
+
+    bool uncompressed = (data.splineFlags & (0x00080000 | 0x00002000)) != 0;
+    if (uncompressed) {
+        for (uint32_t i = 0; i < pointCount - 1; i++) {
+            if (packet.getReadPos() + 12 > packet.getSize()) return true;
+            packet.readFloat(); packet.readFloat(); packet.readFloat();
+        }
+        if (packet.getReadPos() + 12 > packet.getSize()) return true;
+        data.destX = packet.readFloat();
+        data.destY = packet.readFloat();
+        data.destZ = packet.readFloat();
+        data.hasDest = true;
+    } else {
+        if (packet.getReadPos() + 12 > packet.getSize()) return true;
+        data.destX = packet.readFloat();
+        data.destY = packet.readFloat();
+        data.destZ = packet.readFloat();
+        data.hasDest = true;
+    }
+
+    LOG_DEBUG("[TBC] MonsterMove: guid=0x", std::hex, data.guid, std::dec,
+              " type=", (int)data.moveType, " dur=", data.duration, "ms",
+              " dest=(", data.destX, ",", data.destY, ",", data.destZ, ")");
+    return true;
+}
+
+// ============================================================================
+// TBC 2.4.3 CMSG_CAST_SPELL
+// Format: castCount(u8) + spellId(u32) + SpellCastTargets
+// WotLK 3.3.5a adds castFlags(u8) between spellId and targets — TBC does NOT.
+// ============================================================================
+network::Packet TbcPacketParsers::buildCastSpell(uint32_t spellId, uint64_t targetGuid, uint8_t castCount) {
+    network::Packet packet(wireOpcode(LogicalOpcode::CMSG_CAST_SPELL));
+    packet.writeUInt8(castCount);
+    packet.writeUInt32(spellId);
+    // No castFlags byte in TBC 2.4.3
+
+    if (targetGuid != 0) {
+        packet.writeUInt32(0x02); // TARGET_FLAG_UNIT
+        // Write packed GUID
+        uint8_t mask = 0;
+        uint8_t bytes[8];
+        int byteCount = 0;
+        uint64_t g = targetGuid;
+        for (int i = 0; i < 8; ++i) {
+            uint8_t b = g & 0xFF;
+            if (b != 0) {
+                mask |= (1 << i);
+                bytes[byteCount++] = b;
+            }
+            g >>= 8;
+        }
+        packet.writeUInt8(mask);
+        for (int i = 0; i < byteCount; ++i)
+            packet.writeUInt8(bytes[i]);
+    } else {
+        packet.writeUInt32(0x00); // TARGET_FLAG_SELF
+    }
+
+    return packet;
+}
+
+// ============================================================================
+// TBC 2.4.3 CMSG_USE_ITEM
+// Format: bag(u8) + slot(u8) + castCount(u8) + spellId(u32) + itemGuid(u64) +
+//         castFlags(u8) + SpellCastTargets
+// WotLK 3.3.5a adds glyphIndex(u32) between itemGuid and castFlags — TBC does NOT.
+// ============================================================================
+network::Packet TbcPacketParsers::buildUseItem(uint8_t bagIndex, uint8_t slotIndex, uint64_t itemGuid, uint32_t spellId) {
+    network::Packet packet(wireOpcode(LogicalOpcode::CMSG_USE_ITEM));
+    packet.writeUInt8(bagIndex);
+    packet.writeUInt8(slotIndex);
+    packet.writeUInt8(0);          // cast count
+    packet.writeUInt32(spellId);   // on-use spell id
+    packet.writeUInt64(itemGuid);  // full 8-byte GUID
+    // No glyph index field in TBC 2.4.3
+    packet.writeUInt8(0);          // cast flags
+    packet.writeUInt32(0x00);      // SpellCastTargets: TARGET_FLAG_SELF
+    return packet;
+}
+
 network::Packet TbcPacketParsers::buildAcceptQuestPacket(uint64_t npcGuid, uint32_t questId) {
     network::Packet packet(wireOpcode(Opcode::CMSG_QUESTGIVER_ACCEPT_QUEST));
     packet.writeUInt64(npcGuid);

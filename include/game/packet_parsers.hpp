@@ -287,6 +287,12 @@ public:
     bool parseNameQueryResponse(network::Packet& packet, NameQueryResponseData& data) override;
     bool parseItemQueryResponse(network::Packet& packet, ItemQueryResponseData& data) override;
     network::Packet buildAcceptQuestPacket(uint64_t npcGuid, uint32_t questId) override;
+    // TBC 2.4.3 CMSG_CAST_SPELL has no castFlags byte (WotLK added it)
+    network::Packet buildCastSpell(uint32_t spellId, uint64_t targetGuid, uint8_t castCount) override;
+    // TBC 2.4.3 CMSG_USE_ITEM has no glyphIndex field (WotLK added it)
+    network::Packet buildUseItem(uint8_t bagIndex, uint8_t slotIndex, uint64_t itemGuid, uint32_t spellId = 0) override;
+    // TBC 2.4.3 SMSG_MONSTER_MOVE has no unk byte after packed GUID (WotLK added it)
+    bool parseMonsterMove(network::Packet& packet, MonsterMoveData& data) override;
 };
 
 /**
