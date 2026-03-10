@@ -2173,10 +2173,35 @@ void GameHandler::handlePacket(network::Packet& packet) {
             pendingLootRollActive_ = false;
             break;
         }
-        case Opcode::SMSG_LOOT_ITEM_NOTIFY:
-            // uint64 looterGuid + uint64 lootGuid + uint32 itemId + uint32 count — consume
-            packet.setReadPos(packet.getSize());
+        case Opcode::SMSG_LOOT_ITEM_NOTIFY: {
+            // uint64 looterGuid + uint64 lootGuid + uint32 itemId + uint32 count
+            if (packet.getSize() - packet.getReadPos() < 24) {
+                packet.setReadPos(packet.getSize()); break;
+            }
+            uint64_t looterGuid = packet.readUInt64();
+            /*uint64_t lootGuid =*/ packet.readUInt64();
+            uint32_t itemId  = packet.readUInt32();
+            uint32_t count   = packet.readUInt32();
+            // Show loot message for party members (not the player — SMSG_ITEM_PUSH_RESULT covers that)
+            if (isInGroup() && looterGuid != playerGuid) {
+                auto nit = playerNameCache.find(looterGuid);
+                std::string looterName = (nit != playerNameCache.end()) ? nit->second : "";
+                if (!looterName.empty()) {
+                    queryItemInfo(itemId, 0);
+                    std::string itemName = "item #" + std::to_string(itemId);
+                    if (const ItemQueryResponseData* info = getItemInfo(itemId)) {
+                        if (!info->name.empty()) itemName = info->name;
+                    }
+                    char buf[256];
+                    if (count > 1)
+                        std::snprintf(buf, sizeof(buf), "%s loots %s x%u.", looterName.c_str(), itemName.c_str(), count);
+                    else
+                        std::snprintf(buf, sizeof(buf), "%s loots %s.", looterName.c_str(), itemName.c_str());
+                    addSystemChatMessage(buf);
+                }
+            }
             break;
+        }
         case Opcode::SMSG_LOOT_SLOT_CHANGED:
             // uint64 objectGuid + uint32 slot + ... — consume
             packet.setReadPos(packet.getSize());
