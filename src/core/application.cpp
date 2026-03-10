@@ -1701,10 +1701,12 @@ void Application::setupUICallbacks() {
         if (mapId == loadedMapId_ && renderer && renderer->getTerrainManager() && isInitialEntry) {
             LOG_INFO("Reconnect to same map ", mapId, ": clearing stale online entities (terrain preserved)");
 
-            // Pending spawn queues
+            // Pending spawn queues and failure caches
             pendingCreatureSpawns_.clear();
             pendingCreatureSpawnGuids_.clear();
             creatureSpawnRetryCounts_.clear();
+            creaturePermanentFailureGuids_.clear();  // Clear so previously-failed GUIDs can retry
+            deadCreatureGuids_.clear();              // Will be re-populated from fresh server state
             pendingPlayerSpawns_.clear();
             pendingPlayerSpawnGuids_.clear();
             pendingOnlinePlayerEquipment_.clear();
