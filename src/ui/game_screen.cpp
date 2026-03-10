@@ -4416,18 +4416,18 @@ void GameScreen::renderXpBar(game::GameHandler& gameHandler) {
     float screenW = window ? static_cast<float>(window->getWidth()) : 1280.0f;
     float screenH = window ? static_cast<float>(window->getHeight()) : 720.0f;
 
-    // Position just above the action bar
+    // Position just above both action bars (bar1 at screenH-barH, bar2 above that)
     float slotSize = 48.0f;
     float spacing = 4.0f;
     float padding = 8.0f;
     float barW = 12 * slotSize + 11 * spacing + padding * 2;
     float barH = slotSize + 24.0f;
-    float actionBarY = screenH - barH;
 
     float xpBarH = 20.0f;
     float xpBarW = barW;
     float xpBarX = (screenW - xpBarW) / 2.0f;
-    float xpBarY = actionBarY - xpBarH - 2.0f;
+    // bar1 is at screenH-barH, bar2 is at screenH-2*barH-2; XP bar sits above bar2
+    float xpBarY = screenH - 2.0f * barH - 2.0f - xpBarH - 2.0f;
 
     ImGui::SetNextWindowPos(ImVec2(xpBarX, xpBarY), ImGuiCond_Always);
     ImGui::SetNextWindowSize(ImVec2(xpBarW, xpBarH + 4.0f), ImGuiCond_Always);
