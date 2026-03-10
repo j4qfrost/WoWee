@@ -2093,6 +2093,22 @@ void GameScreen::renderTargetFrame(game::GameHandler& gameHandler) {
             }
         }
 
+        // Target cast bar — shown when the target is casting
+        if (gameHandler.isTargetCasting()) {
+            float castPct   = gameHandler.getTargetCastProgress();
+            float castLeft  = gameHandler.getTargetCastTimeRemaining();
+            uint32_t tspell = gameHandler.getTargetCastSpellId();
+            const std::string& castName = (tspell != 0) ? gameHandler.getSpellName(tspell) : "";
+            ImGui::PushStyleColor(ImGuiCol_PlotHistogram, ImVec4(0.9f, 0.3f, 0.2f, 1.0f));
+            char castLabel[72];
+            if (!castName.empty())
+                snprintf(castLabel, sizeof(castLabel), "%s (%.1fs)", castName.c_str(), castLeft);
+            else
+                snprintf(castLabel, sizeof(castLabel), "Casting... (%.1fs)", castLeft);
+            ImGui::ProgressBar(castPct, ImVec2(-1, 14), castLabel);
+            ImGui::PopStyleColor();
+        }
+
         // Distance
         const auto& movement = gameHandler.getMovementInfo();
         float dx = target->getX() - movement.x;

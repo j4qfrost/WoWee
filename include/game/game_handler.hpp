@@ -513,6 +513,16 @@ public:
     float getCastProgress() const { return castTimeTotal > 0 ? (castTimeTotal - castTimeRemaining) / castTimeTotal : 0.0f; }
     float getCastTimeRemaining() const { return castTimeRemaining; }
 
+    // Target cast bar (shows when the current target is casting)
+    bool isTargetCasting() const { return targetCasting_; }
+    uint32_t getTargetCastSpellId() const { return targetCastSpellId_; }
+    float getTargetCastProgress() const {
+        return targetCastTimeTotal_ > 0.0f
+            ? (targetCastTimeTotal_ - targetCastTimeRemaining_) / targetCastTimeTotal_
+            : 0.0f;
+    }
+    float getTargetCastTimeRemaining() const { return targetCastTimeRemaining_; }
+
     // Talents
     uint8_t getActiveTalentSpec() const { return activeTalentSpec_; }
     uint8_t getUnspentTalentPoints() const { return unspentTalentPoints_[activeTalentSpec_]; }
@@ -1754,6 +1764,11 @@ private:
     bool casting = false;
     uint32_t currentCastSpellId = 0;
     float castTimeRemaining = 0.0f;
+    // Target cast bar state (populated from SMSG_SPELL_START for the current target)
+    bool     targetCasting_          = false;
+    uint32_t targetCastSpellId_      = 0;
+    float    targetCastTimeRemaining_= 0.0f;
+    float    targetCastTimeTotal_    = 0.0f;
     uint64_t pendingGameObjectInteractGuid_ = 0;
 
     // Talents (dual-spec support)

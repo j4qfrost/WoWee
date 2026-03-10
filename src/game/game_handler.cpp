@@ -759,6 +759,16 @@ void GameHandler::update(float deltaTime) {
             }
         }
 
+        // Tick down target cast bar
+        if (targetCasting_ && targetCastTimeRemaining_ > 0.0f) {
+            targetCastTimeRemaining_ -= deltaTime;
+            if (targetCastTimeRemaining_ <= 0.0f) {
+                targetCasting_           = false;
+                targetCastSpellId_       = 0;
+                targetCastTimeRemaining_ = 0.0f;
+            }
+        }
+
         // Update spell cooldowns (Phase 3)
         for (auto it = spellCooldowns.begin(); it != spellCooldowns.end(); ) {
             it->second -= deltaTime;
@@ -8546,6 +8556,11 @@ void GameHandler::setTarget(uint64_t guid) {
 
     targetGuid = guid;
 
+    // Clear target cast bar when target changes
+    targetCasting_           = false;
+    targetCastSpellId_       = 0;
+    targetCastTimeRemaining_ = 0.0f;
+
     // Inform server of target selection (Phase 1)
     if (state == WorldState::IN_WORLD && socket) {
         auto packet = SetSelectionPacket::build(guid);
@@ -12641,6 +12656,14 @@ void GameHandler::handleSpellStart(network::Packet& packet) {
     SpellStartData data;
     if (!packetParsers_->parseSpellStart(packet, data)) return;
 
+    // Track cast bar for the current target (for interrupt awareness)
+    if (data.casterUnit == targetGuid && data.castTime > 0) {
+        targetCasting_           = true;
+        targetCastSpellId_       = data.spellId;
+        targetCastTimeTotal_     = data.castTime / 1000.0f;
+        targetCastTimeRemaining_ = targetCastTimeTotal_;
+    }
+
     // If this is the player's own cast, start cast bar
     if (data.casterUnit == playerGuid && data.castTime > 0) {
         casting = true;
@@ -12711,6 +12734,13 @@ void GameHandler::handleSpellGo(network::Packet& packet) {
         casting = false;
         currentCastSpellId = 0;
         castTimeRemaining = 0.0f;
+    }
+
+    // Clear target cast bar when the target's spell lands
+    if (data.casterUnit == targetGuid) {
+        targetCasting_           = false;
+        targetCastSpellId_       = 0;
+        targetCastTimeRemaining_ = 0.0f;
     }
 
     // Show miss/dodge/parry/etc combat text when player's spells miss targets
