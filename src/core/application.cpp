@@ -1009,6 +1009,7 @@ void Application::update(float deltaTime) {
             runInGameStage("post-update sync", [&] {
                 if (renderer && gameHandler && renderer->getCameraController()) {
                     renderer->getCameraController()->setRunSpeedOverride(gameHandler->getServerRunSpeed());
+                    renderer->getCameraController()->setMovementRooted(gameHandler->isPlayerRooted());
                 }
 
                 bool onTaxi = gameHandler &&

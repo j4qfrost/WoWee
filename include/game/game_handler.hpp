@@ -1152,6 +1152,9 @@ public:
     bool isMounted() const { return currentMountDisplayId_ != 0; }
     bool isHostileAttacker(uint64_t guid) const { return hostileAttackers_.count(guid) > 0; }
     float getServerRunSpeed() const { return serverRunSpeed_; }
+    bool isPlayerRooted() const {
+        return (movementInfo.flags & static_cast<uint32_t>(MovementFlags::ROOT)) != 0;
+    }
     void dismount();
 
     // Taxi / Flight Paths

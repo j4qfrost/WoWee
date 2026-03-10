@@ -275,8 +275,10 @@ void CameraController::update(float deltaTime) {
     if (mouseAutorun) {
         autoRunning = false;
     }
-    bool nowForward = keyW || mouseAutorun || autoRunning;
-    bool nowBackward = keyS;
+    // When the server has rooted the player, suppress all horizontal movement input.
+    const bool movBlocked = movementRooted_;
+    bool nowForward = !movBlocked && (keyW || mouseAutorun || autoRunning);
+    bool nowBackward = !movBlocked && keyS;
     bool nowStrafeLeft = false;
     bool nowStrafeRight = false;
     bool nowTurnLeft = false;

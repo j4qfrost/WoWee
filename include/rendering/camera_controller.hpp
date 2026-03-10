@@ -92,6 +92,8 @@ public:
     void setMovementCallback(MovementCallback cb) { movementCallback = std::move(cb); }
     void setUseWoWSpeed(bool use) { useWoWSpeed = use; }
     void setRunSpeedOverride(float speed) { runSpeedOverride_ = speed; }
+    void setMovementRooted(bool rooted) { movementRooted_ = rooted; }
+    bool isMovementRooted() const { return movementRooted_; }
     void setMounted(bool m) { mounted_ = m; }
     void setMountHeightOffset(float offset) { mountHeightOffset_ = offset; }
     void setExternalFollow(bool enabled) { externalFollow_ = enabled; }
@@ -268,6 +270,8 @@ private:
 
     // Server-driven run speed override (0 = use default WOW_RUN_SPEED)
     float runSpeedOverride_ = 0.0f;
+    // Server-driven root state: when true, block all horizontal movement input.
+    bool movementRooted_ = false;
     bool mounted_ = false;
     float mountHeightOffset_ = 0.0f;
     bool externalMoving_ = false;
