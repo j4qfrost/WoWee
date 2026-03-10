@@ -4049,23 +4049,48 @@ void GameScreen::renderActionBar(game::GameHandler& gameHandler) {
                 ImGui::EndTooltip();
             }
 
-            // Cooldown overlay
-            if (onCooldown && iconTex) {
-                // Draw cooldown text centered over the icon
+            // Cooldown overlay: WoW-style clock-sweep + time text
+            if (onCooldown) {
                 ImVec2 btnMin = ImGui::GetItemRectMin();
                 ImVec2 btnMax = ImGui::GetItemRectMax();
+                float cx = (btnMin.x + btnMax.x) * 0.5f;
+                float cy = (btnMin.y + btnMax.y) * 0.5f;
+                float r  = (btnMax.x - btnMin.x) * 0.5f;
+
+                auto* dl = ImGui::GetWindowDrawList();
+
+                // Dark sweep over the elapsed fraction, starting at 12 o'clock
+                float total       = (slot.cooldownTotal > 0.0f) ? slot.cooldownTotal : 1.0f;
+                float elapsed     = total - slot.cooldownRemaining;
+                float elapsedFrac = std::min(1.0f, std::max(0.0f, elapsed / total));
+
+                if (elapsedFrac > 0.005f) {
+                    constexpr int N_SEGS = 32;
+                    float startAngle = -IM_PI * 0.5f;
+                    float endAngle   = startAngle + elapsedFrac * 2.0f * IM_PI;
+                    float fanR       = r * 1.5f; // reach the icon corners
+                    ImVec2 pts[N_SEGS + 2];
+                    pts[0] = ImVec2(cx, cy);
+                    for (int s = 0; s <= N_SEGS; ++s) {
+                        float a = startAngle + (endAngle - startAngle) * s / static_cast<float>(N_SEGS);
+                        pts[s + 1] = ImVec2(cx + std::cos(a) * fanR, cy + std::sin(a) * fanR);
+                    }
+                    dl->AddConvexPolyFilled(pts, N_SEGS + 2, IM_COL32(0, 0, 0, 170));
+                }
+
+                // Remaining-time text: white with drop-shadow
                 char cdText[16];
-                snprintf(cdText, sizeof(cdText), "%.0f", slot.cooldownRemaining);
+                float cd = slot.cooldownRemaining;
+                if (cd >= 60.0f) {
+                    snprintf(cdText, sizeof(cdText), "%dm", static_cast<int>(cd) / 60);
+                } else {
+                    snprintf(cdText, sizeof(cdText), "%.0f", cd);
+                }
                 ImVec2 textSize = ImGui::CalcTextSize(cdText);
-                float cx = btnMin.x + (btnMax.x - btnMin.x - textSize.x) * 0.5f;
-                float cy = btnMin.y + (btnMax.y - btnMin.y - textSize.y) * 0.5f;
-                ImGui::GetWindowDrawList()->AddText(ImVec2(cx, cy),
-                    IM_COL32(255, 255, 0, 255), cdText);
-            } else if (onCooldown) {
-                char cdText[16];
-                snprintf(cdText, sizeof(cdText), "%.0f", slot.cooldownRemaining);
-                ImGui::SetCursorPosY(ImGui::GetCursorPosY() - slotSize / 2 - 8);
-                ImGui::TextColored(ImVec4(1, 1, 0, 1), "%s", cdText);
+                float tx = cx - textSize.x * 0.5f;
+                float ty = cy - textSize.y * 0.5f;
+                dl->AddText(ImVec2(tx + 1.0f, ty + 1.0f), IM_COL32(0, 0, 0, 220), cdText);
+                dl->AddText(ImVec2(tx, ty), IM_COL32(255, 255, 255, 255), cdText);
             }
 
             // Key label below
