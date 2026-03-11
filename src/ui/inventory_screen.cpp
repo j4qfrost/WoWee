@@ -1357,7 +1357,7 @@ void InventoryScreen::renderEquipmentPanel(game::Inventory& inventory) {
         }
     }
 
-    // Weapon row
+    // Weapon row - positioned to the right of left column to avoid crowding main equipment
     ImGui::Spacing();
     ImGui::Separator();
 
@@ -1366,6 +1366,9 @@ void InventoryScreen::renderEquipmentPanel(game::Inventory& inventory) {
         game::EquipSlot::OFF_HAND,
         game::EquipSlot::RANGED,
     };
+
+    // Position weapons to the right of the left column (after the 3D preview column)
+    ImGui::SetCursorPosX(rightColX);
     for (int i = 0; i < 3; i++) {
         if (i > 0) ImGui::SameLine();
         const auto& slot = inventory.getEquipSlot(weaponSlots[i]);
