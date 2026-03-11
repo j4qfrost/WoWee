@@ -357,6 +357,70 @@ QuestQueryTextCandidate pickBestQuestQueryTexts(const std::vector<uint8_t>& data
 
     return best;
 }
+
+// Parse kill/item objectives from SMSG_QUEST_QUERY_RESPONSE raw data.
+// Returns true if the objective block was found and at least one entry read.
+//
+// Format after the fixed integer header (40*4 Classic or 55*4 WotLK bytes post questId+questMethod):
+//   N strings (title, objectives, details, endText; + completedText for WotLK)
+//   4x { int32 npcOrGoId, uint32 count }  -- entity (kill/interact) objectives
+//   6x { uint32 itemId, uint32 count }    -- item collect objectives
+//   4x cstring                            -- per-objective display text
+//
+// We use the same fixed-offset heuristic as pickBestQuestQueryTexts and then scan past
+// the string section to reach the objective data.
+struct QuestQueryObjectives {
+    struct Kill { int32_t npcOrGoId; uint32_t required; };
+    struct Item { uint32_t itemId; uint32_t required; };
+    std::array<Kill, 4> kills{};
+    std::array<Item, 6> items{};
+    bool valid = false;
+};
+
+static uint32_t readU32At(const std::vector<uint8_t>& d, size_t pos) {
+    return static_cast<uint32_t>(d[pos])
+         | (static_cast<uint32_t>(d[pos + 1]) << 8)
+         | (static_cast<uint32_t>(d[pos + 2]) << 16)
+         | (static_cast<uint32_t>(d[pos + 3]) << 24);
+}
+
+QuestQueryObjectives extractQuestQueryObjectives(const std::vector<uint8_t>& data, bool classicHint) {
+    QuestQueryObjectives out;
+    if (data.size() < 16) return out;
+
+    const size_t base = 8;  // questId(4) + questMethod(4) already at start
+    // Number of fixed uint32 fields before the first string (title).
+    const size_t fixedFields = classicHint ? 40u : 55u;
+    size_t pos = base + fixedFields * 4;
+
+    // Number of strings before the objective data.
+    const int nStrings = classicHint ? 4 : 5;
+
+    // Scan past each string (null-terminated).
+    for (int si = 0; si < nStrings; ++si) {
+        while (pos < data.size() && data[pos] != 0) ++pos;
+        if (pos >= data.size()) return out;
+        ++pos;  // consume null terminator
+    }
+
+    // Read 4 entity objectives: int32 npcOrGoId + uint32 count each.
+    for (int i = 0; i < 4; ++i) {
+        if (pos + 8 > data.size()) return out;
+        out.kills[i].npcOrGoId = static_cast<int32_t>(readU32At(data, pos));     pos += 4;
+        out.kills[i].required  = readU32At(data, pos);                            pos += 4;
+    }
+
+    // Read 6 item objectives: uint32 itemId + uint32 count each.
+    for (int i = 0; i < 6; ++i) {
+        if (pos + 8 > data.size()) break;
+        out.items[i].itemId   = readU32At(data, pos);  pos += 4;
+        out.items[i].required = readU32At(data, pos);  pos += 4;
+    }
+
+    out.valid = true;
+    return out;
+}
+
 } // namespace
 
 
@@ -4253,6 +4317,7 @@ void GameHandler::handlePacket(network::Packet& packet) {
 
             const bool isClassicLayout = packetParsers_ && packetParsers_->questLogStride() == 3;
             const QuestQueryTextCandidate parsed = pickBestQuestQueryTexts(packet.getData(), isClassicLayout);
+            const QuestQueryObjectives objs = extractQuestQueryObjectives(packet.getData(), isClassicLayout);
 
             for (auto& q : questLog_) {
                 if (q.questId != questId) continue;
@@ -4275,6 +4340,26 @@ void GameHandler::handlePacket(network::Packet& packet) {
                 if (!parsed.objectives.empty() &&
                     (q.objectives.empty() || q.objectives.size() < 16)) {
                     q.objectives = parsed.objectives;
+                }
+
+                // Store structured kill/item objectives for later kill-count restoration.
+                if (objs.valid) {
+                    for (int i = 0; i < 4; ++i) {
+                        q.killObjectives[i].npcOrGoId = objs.kills[i].npcOrGoId;
+                        q.killObjectives[i].required  = objs.kills[i].required;
+                    }
+                    for (int i = 0; i < 6; ++i) {
+                        q.itemObjectives[i].itemId   = objs.items[i].itemId;
+                        q.itemObjectives[i].required = objs.items[i].required;
+                    }
+                    // Now that we have the objective creature IDs, apply any packed kill
+                    // counts from the player update fields that arrived at login.
+                    applyPackedKillCountsFromFields(q);
+                    LOG_DEBUG("Quest ", questId, " objectives parsed: kills=[",
+                              objs.kills[0].npcOrGoId, "/", objs.kills[0].required, ", ",
+                              objs.kills[1].npcOrGoId, "/", objs.kills[1].required, ", ",
+                              objs.kills[2].npcOrGoId, "/", objs.kills[2].required, ", ",
+                              objs.kills[3].npcOrGoId, "/", objs.kills[3].required, "]");
                 }
                 break;
             }
@@ -14910,6 +14995,76 @@ void GameHandler::applyQuestStateFromFields(const std::map<uint16_t, uint32_t>& 
                 break;
             }
         }
+    }
+}
+
+// Extract packed 6-bit kill/objective counts from WotLK/TBC/Classic quest-log update fields
+// and populate quest.killCounts + quest.itemCounts using the structured objectives obtained
+// from a prior SMSG_QUEST_QUERY_RESPONSE.  Silently does nothing if objectives are absent.
+void GameHandler::applyPackedKillCountsFromFields(QuestLogEntry& quest) {
+    if (lastPlayerFields_.empty()) return;
+
+    const uint16_t ufQuestStart = fieldIndex(UF::PLAYER_QUEST_LOG_START);
+    if (ufQuestStart == 0xFFFF) return;
+
+    const uint8_t qStride = packetParsers_ ? packetParsers_->questLogStride() : 5;
+    if (qStride < 3) return;  // Need at least id + state + packed-counts field
+
+    // Find which server slot this quest occupies.
+    int slot = findQuestLogSlotIndexFromServer(quest.questId);
+    if (slot < 0) return;
+
+    // Packed count fields: stride+2 (all expansions), stride+3 (WotLK only, stride==5)
+    const uint16_t countField1 = ufQuestStart + static_cast<uint16_t>(slot) * qStride + 2;
+    const uint16_t countField2 = (qStride >= 5)
+                                     ? static_cast<uint16_t>(countField1 + 1)
+                                     : static_cast<uint16_t>(0xFFFF);
+
+    auto f1It = lastPlayerFields_.find(countField1);
+    if (f1It == lastPlayerFields_.end()) return;
+    const uint32_t packed1 = f1It->second;
+
+    uint32_t packed2 = 0;
+    if (countField2 != 0xFFFF) {
+        auto f2It = lastPlayerFields_.find(countField2);
+        if (f2It != lastPlayerFields_.end()) packed2 = f2It->second;
+    }
+
+    // Unpack six 6-bit counts (bit fields 0-5, 6-11, 12-17, 18-23 in packed1;
+    // bits 0-5, 6-11 in packed2 for objectives 4 and 5).
+    auto unpack6 = [](uint32_t word, int idx) -> uint8_t {
+        return static_cast<uint8_t>((word >> (idx * 6)) & 0x3F);
+    };
+    const uint8_t counts[6] = {
+        unpack6(packed1, 0), unpack6(packed1, 1),
+        unpack6(packed1, 2), unpack6(packed1, 3),
+        unpack6(packed2, 0), unpack6(packed2, 1),
+    };
+
+    // Apply kill objective counts (indices 0-3).
+    for (int i = 0; i < 4; ++i) {
+        const auto& obj = quest.killObjectives[i];
+        if (obj.npcOrGoId == 0 || obj.required == 0) continue;
+        const uint32_t entryKey = static_cast<uint32_t>(obj.npcOrGoId);
+        // Don't overwrite live kill count with stale packed data if already non-zero.
+        if (counts[i] == 0 && quest.killCounts.count(entryKey)) continue;
+        quest.killCounts[entryKey] = {counts[i], obj.required};
+        LOG_DEBUG("Quest ", quest.questId, " objective[", i, "]: npcOrGo=",
+                  obj.npcOrGoId, " count=", (int)counts[i], "/", obj.required);
+    }
+
+    // Apply item objective counts (only available in WotLK stride+3 positions 4-5).
+    // Item counts also arrive live via SMSG_QUESTUPDATE_ADD_ITEM; just initialise here.
+    for (int i = 0; i < 6; ++i) {
+        const auto& obj = quest.itemObjectives[i];
+        if (obj.itemId == 0 || obj.required == 0) continue;
+        if (i < 2 && qStride >= 5) {
+            uint8_t cnt = counts[4 + i];
+            if (cnt > 0) {
+                quest.itemCounts[obj.itemId] = std::max(quest.itemCounts[obj.itemId], static_cast<uint32_t>(cnt));
+            }
+        }
+        quest.requiredItemCounts.emplace(obj.itemId, obj.required);
     }
 }
 

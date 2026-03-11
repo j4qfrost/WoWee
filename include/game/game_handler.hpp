@@ -1069,12 +1069,27 @@ public:
         std::string title;
         std::string objectives;
         bool complete = false;
-        // Objective kill counts: objectiveIndex -> (current, required)
+        // Objective kill counts: npcOrGoEntry -> (current, required)
         std::unordered_map<uint32_t, std::pair<uint32_t, uint32_t>> killCounts;
         // Quest item progress: itemId -> current count
         std::unordered_map<uint32_t, uint32_t> itemCounts;
         // Server-authoritative quest item requirements from REQUEST_ITEMS
         std::unordered_map<uint32_t, uint32_t> requiredItemCounts;
+        // Structured kill objectives parsed from SMSG_QUEST_QUERY_RESPONSE.
+        // Index 0-3 map to the server's objective slot order (packed into update fields).
+        // npcOrGoId != 0 => entity objective (kill NPC or interact with GO).
+        struct KillObjective {
+            int32_t npcOrGoId = 0;  // negative = game-object entry
+            uint32_t required = 0;
+        };
+        std::array<KillObjective, 4> killObjectives{};  // zeroed by default
+        // Required item objectives parsed from SMSG_QUEST_QUERY_RESPONSE.
+        // itemId != 0 => collect items of that type.
+        struct ItemObjective {
+            uint32_t itemId = 0;
+            uint32_t required = 0;
+        };
+        std::array<ItemObjective, 6> itemObjectives{};  // zeroed by default
     };
     const std::vector<QuestLogEntry>& getQuestLog() const { return questLog_; }
     void abandonQuest(uint32_t questId);
@@ -2363,6 +2378,9 @@ private:
     void extractSkillFields(const std::map<uint16_t, uint32_t>& fields);
     void extractExploredZoneFields(const std::map<uint16_t, uint32_t>& fields);
     void applyQuestStateFromFields(const std::map<uint16_t, uint32_t>& fields);
+    // Apply packed kill counts from player update fields to a quest entry that has
+    // already had its killObjectives populated from SMSG_QUEST_QUERY_RESPONSE.
+    void applyPackedKillCountsFromFields(QuestLogEntry& quest);
 
     NpcDeathCallback npcDeathCallback_;
     NpcAggroCallback npcAggroCallback_;
