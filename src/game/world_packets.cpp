@@ -2949,14 +2949,36 @@ bool XpGainParser::parse(network::Packet& packet, XpGainData& data) {
 
 bool InitialSpellsParser::parse(network::Packet& packet, InitialSpellsData& data,
                                 bool vanillaFormat) {
+    // Validate minimum packet size for header: talentSpec(1) + spellCount(2)
+    if (packet.getSize() - packet.getReadPos() < 3) {
+        LOG_ERROR("SMSG_INITIAL_SPELLS: packet too small (", packet.getSize(), " bytes)");
+        return false;
+    }
+
     data.talentSpec = packet.readUInt8();
     uint16_t spellCount = packet.readUInt16();
+
+    // Cap spell count to prevent excessive iteration
+    constexpr uint16_t kMaxSpells = 256;
+    if (spellCount > kMaxSpells) {
+        LOG_WARNING("SMSG_INITIAL_SPELLS: spellCount=", spellCount, " exceeds max ", kMaxSpells,
+                    ", capping");
+        spellCount = kMaxSpells;
+    }
 
     LOG_DEBUG("SMSG_INITIAL_SPELLS: spellCount=", spellCount,
               vanillaFormat ? " (vanilla uint16 format)" : " (TBC/WotLK uint32 format)");
 
     data.spellIds.reserve(spellCount);
     for (uint16_t i = 0; i < spellCount; ++i) {
+        // Vanilla spell: spellId(2) + slot(2) = 4 bytes
+        // TBC/WotLK spell: spellId(4) + unknown(2) = 6 bytes
+        size_t spellEntrySize = vanillaFormat ? 4 : 6;
+        if (packet.getSize() - packet.getReadPos() < spellEntrySize) {
+            LOG_WARNING("SMSG_INITIAL_SPELLS: spell ", i, " truncated (", spellCount, " expected)");
+            break;
+        }
+
         uint32_t spellId;
         if (vanillaFormat) {
             spellId = packet.readUInt16();
@@ -2970,9 +2992,33 @@ bool InitialSpellsParser::parse(network::Packet& packet, InitialSpellsData& data
         }
     }
 
+    // Validate minimum packet size for cooldownCount (2 bytes)
+    if (packet.getSize() - packet.getReadPos() < 2) {
+        LOG_WARNING("SMSG_INITIAL_SPELLS: truncated before cooldownCount (parsed ", data.spellIds.size(),
+                    " spells)");
+        return true;  // Have spells; cooldowns are optional
+    }
+
     uint16_t cooldownCount = packet.readUInt16();
+
+    // Cap cooldown count to prevent excessive iteration
+    constexpr uint16_t kMaxCooldowns = 256;
+    if (cooldownCount > kMaxCooldowns) {
+        LOG_WARNING("SMSG_INITIAL_SPELLS: cooldownCount=", cooldownCount, " exceeds max ", kMaxCooldowns,
+                    ", capping");
+        cooldownCount = kMaxCooldowns;
+    }
+
     data.cooldowns.reserve(cooldownCount);
     for (uint16_t i = 0; i < cooldownCount; ++i) {
+        // Vanilla cooldown: spellId(2) + itemId(2) + categoryId(2) + cooldownMs(4) + categoryCooldownMs(4) = 14 bytes
+        // TBC/WotLK cooldown: spellId(4) + itemId(2) + categoryId(2) + cooldownMs(4) + categoryCooldownMs(4) = 16 bytes
+        size_t cooldownEntrySize = vanillaFormat ? 14 : 16;
+        if (packet.getSize() - packet.getReadPos() < cooldownEntrySize) {
+            LOG_WARNING("SMSG_INITIAL_SPELLS: cooldown ", i, " truncated (", cooldownCount, " expected)");
+            break;
+        }
+
         SpellCooldownEntry entry;
         if (vanillaFormat) {
             entry.spellId = packet.readUInt16();
