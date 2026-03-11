@@ -2747,16 +2747,21 @@ void GameHandler::handlePacket(network::Packet& packet) {
             break;
         case Opcode::SMSG_SPELL_FAILURE: {
             // WotLK: packed_guid + uint8 castCount + uint32 spellId + uint8 failReason
-            // TBC/Classic: full uint64 + uint8 castCount + uint32 spellId + uint8 failReason
-            const bool tbcOrClassic = isClassicLikeExpansion() || isActiveExpansion("tbc");
-            uint64_t failGuid = tbcOrClassic
+            // TBC:   full uint64 + uint8 castCount + uint32 spellId + uint8 failReason
+            // Classic: full uint64 + uint32 spellId + uint8 failReason  (NO castCount)
+            const bool isClassic = isClassicLikeExpansion();
+            const bool isTbc     = isActiveExpansion("tbc");
+            uint64_t failGuid = (isClassic || isTbc)
                 ? (packet.getSize() - packet.getReadPos() >= 8 ? packet.readUInt64() : 0)
                 : UpdateObjectParser::readPackedGuid(packet);
-            // Read castCount + spellId + failReason
-            if (packet.getSize() - packet.getReadPos() >= 6) {
-                /*uint8_t castCount =*/ packet.readUInt8();
+            // Classic omits the castCount byte; TBC and WotLK include it
+            const size_t remainingFields = isClassic ? 5u : 6u;  // spellId(4)+reason(1) [+castCount(1)]
+            if (packet.getSize() - packet.getReadPos() >= remainingFields) {
+                if (!isClassic) /*uint8_t castCount =*/ packet.readUInt8();
                 /*uint32_t spellId  =*/ packet.readUInt32();
-                uint8_t failReason = packet.readUInt8();
+                uint8_t rawFailReason = packet.readUInt8();
+                // Classic result enum starts at 0=AFFECTING_COMBAT; shift +1 for WotLK table
+                uint8_t failReason = isClassic ? static_cast<uint8_t>(rawFailReason + 1) : rawFailReason;
                 if (failGuid == playerGuid && failReason != 0) {
                     // Show interruption/failure reason in chat for player
                     int pt = -1;
