@@ -5267,10 +5267,11 @@ void GameHandler::handlePacket(network::Packet& packet) {
             if (victimGuid == playerGuid || casterGuid == playerGuid) {
                 const char* verb = isStolen ? "stolen" : "dispelled";
                 // Collect first dispelled spell name for the message
+                // Each entry: uint32 spellId + uint8 isPositive (5 bytes in WotLK/TBC/Classic)
                 std::string firstSpellName;
-                for (uint32_t i = 0; i < count && packet.getSize() - packet.getReadPos() >= 8; ++i) {
+                for (uint32_t i = 0; i < count && packet.getSize() - packet.getReadPos() >= 5; ++i) {
                     uint32_t dispelledId = packet.readUInt32();
-                    /*uint32_t unk =*/ packet.readUInt32();
+                    /*uint8_t isPositive =*/ packet.readUInt8();
                     if (i == 0) {
                         const std::string& nm = getSpellName(dispelledId);
                         firstSpellName = nm.empty() ? ("spell " + std::to_string(dispelledId)) : nm;
