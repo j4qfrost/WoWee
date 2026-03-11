@@ -143,6 +143,17 @@ private:
     bool pendingAMDFramegen = false;
     bool fsrSettingsApplied_ = false;
 
+    // Graphics quality presets
+    enum class GraphicsPreset : int {
+        CUSTOM = 0,
+        LOW = 1,
+        MEDIUM = 2,
+        HIGH = 3,
+        ULTRA = 4
+    };
+    GraphicsPreset currentGraphicsPreset = GraphicsPreset::CUSTOM;
+    GraphicsPreset pendingGraphicsPreset = GraphicsPreset::CUSTOM;
+
     // UI element transparency (0.0 = fully transparent, 1.0 = fully opaque)
     float uiOpacity_ = 0.65f;
     bool minimapRotate_ = false;
@@ -252,6 +263,8 @@ private:
     void renderTalentWipeConfirmDialog(game::GameHandler& gameHandler);
     void renderEscapeMenu();
     void renderSettingsWindow();
+    void applyGraphicsPreset(GraphicsPreset preset);
+    void updateGraphicsPresetFromCurrentSettings();
     void renderQuestMarkers(game::GameHandler& gameHandler);
     void renderMinimapMarkers(game::GameHandler& gameHandler);
     void renderQuestObjectiveTracker(game::GameHandler& gameHandler);

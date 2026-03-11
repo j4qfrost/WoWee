@@ -8595,16 +8595,37 @@ void GameScreen::renderSettingsWindow() {
             if (ImGui::BeginTabItem("Video")) {
                 ImGui::Spacing();
 
+                // Graphics Quality Presets
+                {
+                    const char* presetLabels[] = { "Custom", "Low", "Medium", "High", "Ultra" };
+                    int presetIdx = static_cast<int>(pendingGraphicsPreset);
+                    if (ImGui::Combo("Quality Preset", &presetIdx, presetLabels, 5)) {
+                        pendingGraphicsPreset = static_cast<GraphicsPreset>(presetIdx);
+                        if (pendingGraphicsPreset != GraphicsPreset::CUSTOM) {
+                            applyGraphicsPreset(pendingGraphicsPreset);
+                            saveSettings();
+                        }
+                    }
+                    ImGui::TextDisabled("Adjust these for custom settings");
+                }
+
+                ImGui::Spacing();
+                ImGui::Separator();
+                ImGui::Spacing();
+
                 if (ImGui::Checkbox("Fullscreen", &pendingFullscreen)) {
                     window->setFullscreen(pendingFullscreen);
+                    updateGraphicsPresetFromCurrentSettings();
                     saveSettings();
                 }
                 if (ImGui::Checkbox("VSync", &pendingVsync)) {
                     window->setVsync(pendingVsync);
+                    updateGraphicsPresetFromCurrentSettings();
                     saveSettings();
                 }
                 if (ImGui::Checkbox("Shadows", &pendingShadows)) {
                     if (renderer) renderer->setShadowsEnabled(pendingShadows);
+                    updateGraphicsPresetFromCurrentSettings();
                     saveSettings();
                 }
                 if (pendingShadows) {
@@ -8612,6 +8633,7 @@ void GameScreen::renderSettingsWindow() {
                     ImGui::SetNextItemWidth(150.0f);
                     if (ImGui::SliderFloat("Distance##shadow", &pendingShadowDistance, 40.0f, 500.0f, "%.0f")) {
                         if (renderer) renderer->setShadowDistance(pendingShadowDistance);
+                        updateGraphicsPresetFromCurrentSettings();
                         saveSettings();
                     }
                 }
@@ -8643,6 +8665,7 @@ void GameScreen::renderSettingsWindow() {
                             VK_SAMPLE_COUNT_4_BIT, VK_SAMPLE_COUNT_8_BIT
                         };
                         if (renderer) renderer->setMsaaSamples(aaSamples[pendingAntiAliasing]);
+                        updateGraphicsPresetFromCurrentSettings();
                         saveSettings();
                     }
                 }
@@ -9426,6 +9449,175 @@ void GameScreen::renderSettingsWindow() {
     ImGui::End();
 }
 
+void GameScreen::applyGraphicsPreset(GraphicsPreset preset) {
+    auto* renderer = core::Application::getInstance().getRenderer();
+
+    // Define preset values based on quality level
+    switch (preset) {
+        case GraphicsPreset::LOW: {
+            pendingShadows = false;
+            pendingShadowDistance = 100.0f;
+            pendingAntiAliasing = 0;  // Off
+            pendingNormalMapping = false;
+            pendingPOM = false;
+            pendingGroundClutterDensity = 25;
+            if (renderer) {
+                renderer->setShadowsEnabled(false);
+                renderer->setMsaaSamples(VK_SAMPLE_COUNT_1_BIT);
+                if (auto* wr = renderer->getWMORenderer()) {
+                    wr->setNormalMappingEnabled(false);
+                    wr->setPOMEnabled(false);
+                }
+                if (auto* cr = renderer->getCharacterRenderer()) {
+                    cr->setNormalMappingEnabled(false);
+                    cr->setPOMEnabled(false);
+                }
+                if (auto* tm = renderer->getTerrainManager()) {
+                    tm->setGroundClutterDensityScale(0.25f);
+                }
+            }
+            break;
+        }
+        case GraphicsPreset::MEDIUM: {
+            pendingShadows = true;
+            pendingShadowDistance = 200.0f;
+            pendingAntiAliasing = 1;  // 2x MSAA
+            pendingNormalMapping = true;
+            pendingNormalMapStrength = 0.6f;
+            pendingPOM = true;
+            pendingPOMQuality = 0;  // Low
+            pendingGroundClutterDensity = 60;
+            if (renderer) {
+                renderer->setShadowsEnabled(true);
+                renderer->setShadowDistance(200.0f);
+                renderer->setMsaaSamples(VK_SAMPLE_COUNT_2_BIT);
+                if (auto* wr = renderer->getWMORenderer()) {
+                    wr->setNormalMappingEnabled(true);
+                    wr->setNormalMapStrength(0.6f);
+                    wr->setPOMEnabled(true);
+                    wr->setPOMQuality(0);
+                }
+                if (auto* cr = renderer->getCharacterRenderer()) {
+                    cr->setNormalMappingEnabled(true);
+                    cr->setNormalMapStrength(0.6f);
+                    cr->setPOMEnabled(true);
+                    cr->setPOMQuality(0);
+                }
+                if (auto* tm = renderer->getTerrainManager()) {
+                    tm->setGroundClutterDensityScale(0.60f);
+                }
+            }
+            break;
+        }
+        case GraphicsPreset::HIGH: {
+            pendingShadows = true;
+            pendingShadowDistance = 350.0f;
+            pendingAntiAliasing = 2;  // 4x MSAA
+            pendingNormalMapping = true;
+            pendingNormalMapStrength = 0.8f;
+            pendingPOM = true;
+            pendingPOMQuality = 1;  // Medium
+            pendingGroundClutterDensity = 100;
+            if (renderer) {
+                renderer->setShadowsEnabled(true);
+                renderer->setShadowDistance(350.0f);
+                renderer->setMsaaSamples(VK_SAMPLE_COUNT_4_BIT);
+                if (auto* wr = renderer->getWMORenderer()) {
+                    wr->setNormalMappingEnabled(true);
+                    wr->setNormalMapStrength(0.8f);
+                    wr->setPOMEnabled(true);
+                    wr->setPOMQuality(1);
+                }
+                if (auto* cr = renderer->getCharacterRenderer()) {
+                    cr->setNormalMappingEnabled(true);
+                    cr->setNormalMapStrength(0.8f);
+                    cr->setPOMEnabled(true);
+                    cr->setPOMQuality(1);
+                }
+                if (auto* tm = renderer->getTerrainManager()) {
+                    tm->setGroundClutterDensityScale(1.0f);
+                }
+            }
+            break;
+        }
+        case GraphicsPreset::ULTRA: {
+            pendingShadows = true;
+            pendingShadowDistance = 500.0f;
+            pendingAntiAliasing = 3;  // 8x MSAA
+            pendingNormalMapping = true;
+            pendingNormalMapStrength = 1.2f;
+            pendingPOM = true;
+            pendingPOMQuality = 2;  // High
+            pendingGroundClutterDensity = 150;
+            if (renderer) {
+                renderer->setShadowsEnabled(true);
+                renderer->setShadowDistance(500.0f);
+                renderer->setMsaaSamples(VK_SAMPLE_COUNT_8_BIT);
+                if (auto* wr = renderer->getWMORenderer()) {
+                    wr->setNormalMappingEnabled(true);
+                    wr->setNormalMapStrength(1.2f);
+                    wr->setPOMEnabled(true);
+                    wr->setPOMQuality(2);
+                }
+                if (auto* cr = renderer->getCharacterRenderer()) {
+                    cr->setNormalMappingEnabled(true);
+                    cr->setNormalMapStrength(1.2f);
+                    cr->setPOMEnabled(true);
+                    cr->setPOMQuality(2);
+                }
+                if (auto* tm = renderer->getTerrainManager()) {
+                    tm->setGroundClutterDensityScale(1.5f);
+                }
+            }
+            break;
+        }
+        default:
+            break;
+    }
+
+    currentGraphicsPreset = preset;
+    pendingGraphicsPreset = preset;
+}
+
+void GameScreen::updateGraphicsPresetFromCurrentSettings() {
+    // Check if current settings match any preset, otherwise mark as CUSTOM
+    // This is a simplified check; could be enhanced with more detailed matching
+
+    auto matchesPreset = [this](GraphicsPreset preset) -> bool {
+        switch (preset) {
+            case GraphicsPreset::LOW:
+                return !pendingShadows && pendingAntiAliasing == 0 && !pendingNormalMapping && !pendingPOM &&
+                       pendingGroundClutterDensity <= 30;
+            case GraphicsPreset::MEDIUM:
+                return pendingShadows && pendingShadowDistance >= 180 && pendingShadowDistance <= 220 &&
+                       pendingAntiAliasing == 1 && pendingNormalMapping && pendingPOM &&
+                       pendingGroundClutterDensity >= 50 && pendingGroundClutterDensity <= 70;
+            case GraphicsPreset::HIGH:
+                return pendingShadows && pendingShadowDistance >= 330 && pendingShadowDistance <= 370 &&
+                       pendingAntiAliasing == 2 && pendingNormalMapping && pendingPOM &&
+                       pendingGroundClutterDensity >= 90 && pendingGroundClutterDensity <= 110;
+            case GraphicsPreset::ULTRA:
+                return pendingShadows && pendingShadowDistance >= 480 && pendingAntiAliasing == 3 &&
+                       pendingNormalMapping && pendingPOM && pendingGroundClutterDensity >= 140;
+            default:
+                return false;
+        }
+    };
+
+    // Try to match a preset, otherwise mark as custom
+    if (matchesPreset(GraphicsPreset::LOW)) {
+        pendingGraphicsPreset = GraphicsPreset::LOW;
+    } else if (matchesPreset(GraphicsPreset::MEDIUM)) {
+        pendingGraphicsPreset = GraphicsPreset::MEDIUM;
+    } else if (matchesPreset(GraphicsPreset::HIGH)) {
+        pendingGraphicsPreset = GraphicsPreset::HIGH;
+    } else if (matchesPreset(GraphicsPreset::ULTRA)) {
+        pendingGraphicsPreset = GraphicsPreset::ULTRA;
+    } else {
+        pendingGraphicsPreset = GraphicsPreset::CUSTOM;
+    }
+}
+
 void GameScreen::renderQuestMarkers(game::GameHandler& gameHandler) {
     const auto& statuses = gameHandler.getNpcQuestStatuses();
     if (statuses.empty()) return;
@@ -10154,6 +10346,7 @@ void GameScreen::saveSettings() {
 
     // Gameplay
     out << "auto_loot=" << (pendingAutoLoot ? 1 : 0) << "\n";
+    out << "graphics_preset=" << static_cast<int>(currentGraphicsPreset) << "\n";
     out << "ground_clutter_density=" << pendingGroundClutterDensity << "\n";
     out << "shadows=" << (pendingShadows ? 1 : 0) << "\n";
     out << "shadow_distance=" << pendingShadowDistance << "\n";
@@ -10267,6 +10460,11 @@ void GameScreen::loadSettings() {
             else if (key == "activity_volume") pendingActivityVolume = std::clamp(std::stoi(val), 0, 100);
             // Gameplay
             else if (key == "auto_loot") pendingAutoLoot = (std::stoi(val) != 0);
+            else if (key == "graphics_preset") {
+                int presetVal = std::clamp(std::stoi(val), 0, 4);
+                currentGraphicsPreset = static_cast<GraphicsPreset>(presetVal);
+                pendingGraphicsPreset = currentGraphicsPreset;
+            }
             else if (key == "ground_clutter_density") pendingGroundClutterDensity = std::clamp(std::stoi(val), 0, 150);
             else if (key == "shadows") pendingShadows = (std::stoi(val) != 0);
             else if (key == "shadow_distance") pendingShadowDistance = std::clamp(std::stof(val), 40.0f, 500.0f);
