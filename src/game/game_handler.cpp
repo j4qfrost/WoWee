@@ -384,30 +384,25 @@ static uint32_t readU32At(const std::vector<uint8_t>& d, size_t pos) {
          | (static_cast<uint32_t>(d[pos + 3]) << 24);
 }
 
-QuestQueryObjectives extractQuestQueryObjectives(const std::vector<uint8_t>& data, bool classicHint) {
+// Try to parse objective block starting at `startPos` with `nStrings` strings before it.
+// Returns a valid QuestQueryObjectives if the data looks plausible, otherwise invalid.
+static QuestQueryObjectives tryParseQuestObjectivesAt(const std::vector<uint8_t>& data,
+                                                       size_t startPos, int nStrings) {
     QuestQueryObjectives out;
-    if (data.size() < 16) return out;
-
-    const size_t base = 8;  // questId(4) + questMethod(4) already at start
-    // Number of fixed uint32 fields before the first string (title).
-    const size_t fixedFields = classicHint ? 40u : 55u;
-    size_t pos = base + fixedFields * 4;
-
-    // Number of strings before the objective data.
-    const int nStrings = classicHint ? 4 : 5;
+    size_t pos = startPos;
 
     // Scan past each string (null-terminated).
     for (int si = 0; si < nStrings; ++si) {
         while (pos < data.size() && data[pos] != 0) ++pos;
-        if (pos >= data.size()) return out;
+        if (pos >= data.size()) return out;  // truncated
         ++pos;  // consume null terminator
     }
 
     // Read 4 entity objectives: int32 npcOrGoId + uint32 count each.
     for (int i = 0; i < 4; ++i) {
         if (pos + 8 > data.size()) return out;
-        out.kills[i].npcOrGoId = static_cast<int32_t>(readU32At(data, pos));     pos += 4;
-        out.kills[i].required  = readU32At(data, pos);                            pos += 4;
+        out.kills[i].npcOrGoId = static_cast<int32_t>(readU32At(data, pos));  pos += 4;
+        out.kills[i].required  = readU32At(data, pos);                         pos += 4;
     }
 
     // Read 6 item objectives: uint32 itemId + uint32 count each.
@@ -419,6 +414,28 @@ QuestQueryObjectives extractQuestQueryObjectives(const std::vector<uint8_t>& dat
 
     out.valid = true;
     return out;
+}
+
+QuestQueryObjectives extractQuestQueryObjectives(const std::vector<uint8_t>& data, bool classicHint) {
+    if (data.size() < 16) return {};
+
+    // questId(4) + questMethod(4) prefix before the fixed integer header.
+    const size_t base = 8;
+    // Classic/TBC: 40 fixed uint32 fields + 4 strings before objectives.
+    // WotLK:       55 fixed uint32 fields + 5 strings before objectives.
+    const size_t classicStart = base + 40u * 4u;
+    const size_t wotlkStart   = base + 55u * 4u;
+
+    // Try the expected layout first, then fall back to the other.
+    if (classicHint) {
+        auto r = tryParseQuestObjectivesAt(data, classicStart, 4);
+        if (r.valid) return r;
+        return tryParseQuestObjectivesAt(data, wotlkStart, 5);
+    } else {
+        auto r = tryParseQuestObjectivesAt(data, wotlkStart, 5);
+        if (r.valid) return r;
+        return tryParseQuestObjectivesAt(data, classicStart, 4);
+    }
 }
 
 } // namespace
@@ -4315,7 +4332,9 @@ void GameHandler::handlePacket(network::Packet& packet) {
             uint32_t questId = packet.readUInt32();
             packet.readUInt32(); // questMethod
 
-            const bool isClassicLayout = packetParsers_ && packetParsers_->questLogStride() == 3;
+            // Classic/Turtle = stride 3, TBC = stride 4 — all use 40 fixed fields + 4 strings.
+            // WotLK = stride 5, uses 55 fixed fields + 5 strings.
+            const bool isClassicLayout = packetParsers_ && packetParsers_->questLogStride() <= 4;
             const QuestQueryTextCandidate parsed = pickBestQuestQueryTexts(packet.getData(), isClassicLayout);
             const QuestQueryObjectives objs = extractQuestQueryObjectives(packet.getData(), isClassicLayout);
 
@@ -4355,6 +4374,18 @@ void GameHandler::handlePacket(network::Packet& packet) {
                     // Now that we have the objective creature IDs, apply any packed kill
                     // counts from the player update fields that arrived at login.
                     applyPackedKillCountsFromFields(q);
+                    // Pre-fetch creature/GO names and item info so objective display is
+                    // populated by the time the player opens the quest log.
+                    for (int i = 0; i < 4; ++i) {
+                        int32_t id = objs.kills[i].npcOrGoId;
+                        if (id == 0 || objs.kills[i].required == 0) continue;
+                        if (id > 0) queryCreatureInfo(static_cast<uint32_t>(id), 0);
+                        else        queryGameObjectInfo(static_cast<uint32_t>(-id), 0);
+                    }
+                    for (int i = 0; i < 6; ++i) {
+                        if (objs.items[i].itemId != 0 && objs.items[i].required != 0)
+                            queryItemInfo(objs.items[i].itemId, 0);
+                    }
                     LOG_DEBUG("Quest ", questId, " objectives parsed: kills=[",
                               objs.kills[0].npcOrGoId, "/", objs.kills[0].required, ", ",
                               objs.kills[1].npcOrGoId, "/", objs.kills[1].required, ", ",

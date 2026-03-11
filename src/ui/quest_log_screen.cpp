@@ -379,14 +379,19 @@ void QuestLogScreen::render(game::GameHandler& gameHandler) {
                     ImGui::Separator();
                     ImGui::TextColored(ImVec4(0.8f, 0.9f, 1.0f, 1.0f), "Tracked Progress");
                     for (const auto& [entry, progress] : sel.killCounts) {
-                        ImGui::BulletText("Kill %u: %u/%u", entry, progress.first, progress.second);
+                        std::string name = gameHandler.getCachedCreatureName(entry);
+                        if (name.empty()) name = "Unknown (" + std::to_string(entry) + ")";
+                        ImGui::BulletText("%s: %u/%u", name.c_str(), progress.first, progress.second);
                     }
                     for (const auto& [itemId, count] : sel.itemCounts) {
                         std::string itemLabel = "Item " + std::to_string(itemId);
                         if (const auto* info = gameHandler.getItemInfo(itemId)) {
                             if (!info->name.empty()) itemLabel = info->name;
                         }
-                        ImGui::BulletText("%s: %u", itemLabel.c_str(), count);
+                        uint32_t required = 1;
+                        auto reqIt = sel.requiredItemCounts.find(itemId);
+                        if (reqIt != sel.requiredItemCounts.end()) required = reqIt->second;
+                        ImGui::BulletText("%s: %u/%u", itemLabel.c_str(), count, required);
                     }
                 }
 
