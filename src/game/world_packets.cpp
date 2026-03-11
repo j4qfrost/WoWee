@@ -3189,17 +3189,28 @@ bool CastFailedParser::parse(network::Packet& packet, CastFailedData& data) {
 }
 
 bool SpellStartParser::parse(network::Packet& packet, SpellStartData& data) {
+    // Upfront validation: packed GUID(1-8) + packed GUID(1-8) + castCount(1) + spellId(4) + castFlags(4) + castTime(4) = 22 bytes minimum
+    if (packet.getSize() - packet.getReadPos() < 22) return false;
+
+    size_t startPos = packet.getReadPos();
     data.casterGuid = UpdateObjectParser::readPackedGuid(packet);
     data.casterUnit = UpdateObjectParser::readPackedGuid(packet);
+
+    // Validate remaining fixed fields (castCount + spellId + castFlags + castTime = 9 bytes)
+    if (packet.getSize() - packet.getReadPos() < 9) {
+        packet.setReadPos(startPos);
+        return false;
+    }
+
     data.castCount = packet.readUInt8();
     data.spellId = packet.readUInt32();
     data.castFlags = packet.readUInt32();
     data.castTime = packet.readUInt32();
 
     // Read target flags and target (simplified)
-    if (packet.getReadPos() < packet.getSize()) {
+    if (packet.getSize() - packet.getReadPos() >= 4) {
         uint32_t targetFlags = packet.readUInt32();
-        if (targetFlags & 0x02) { // TARGET_FLAG_UNIT
+        if ((targetFlags & 0x02) && packet.getSize() - packet.getReadPos() >= 1) { // TARGET_FLAG_UNIT, validate packed GUID read
             data.targetGuid = UpdateObjectParser::readPackedGuid(packet);
         }
     }
@@ -3209,8 +3220,19 @@ bool SpellStartParser::parse(network::Packet& packet, SpellStartData& data) {
 }
 
 bool SpellGoParser::parse(network::Packet& packet, SpellGoData& data) {
+    // Upfront validation: packed GUID(1-8) + packed GUID(1-8) + castCount(1) + spellId(4) + castFlags(4) + timestamp(4) + hitCount(1) + missCount(1) = 24 bytes minimum
+    if (packet.getSize() - packet.getReadPos() < 24) return false;
+
+    size_t startPos = packet.getReadPos();
     data.casterGuid = UpdateObjectParser::readPackedGuid(packet);
     data.casterUnit = UpdateObjectParser::readPackedGuid(packet);
+
+    // Validate remaining fixed fields up to hitCount/missCount
+    if (packet.getSize() - packet.getReadPos() < 14) { // castCount(1) + spellId(4) + castFlags(4) + timestamp(4) + hitCount(1)
+        packet.setReadPos(startPos);
+        return false;
+    }
+
     data.castCount = packet.readUInt8();
     data.spellId = packet.readUInt32();
     data.castFlags = packet.readUInt32();
@@ -3218,17 +3240,45 @@ bool SpellGoParser::parse(network::Packet& packet, SpellGoData& data) {
     packet.readUInt32();
 
     data.hitCount = packet.readUInt8();
+    // Cap hit count to prevent DoS via massive arrays
+    if (data.hitCount > 128) {
+        LOG_WARNING("Spell go: hitCount capped (requested=", (int)data.hitCount, ")");
+        data.hitCount = 128;
+    }
+
     data.hitTargets.reserve(data.hitCount);
     for (uint8_t i = 0; i < data.hitCount; ++i) {
+        if (packet.getSize() - packet.getReadPos() < 8) {
+            LOG_WARNING("Spell go: truncated hit targets at index ", (int)i, "/", (int)data.hitCount);
+            data.hitCount = i;
+            break;
+        }
         data.hitTargets.push_back(packet.readUInt64());
     }
 
+    // Validate missCount field exists
+    if (packet.getSize() - packet.getReadPos() < 1) {
+        return true; // Valid, just no misses
+    }
+
     data.missCount = packet.readUInt8();
+    // Cap miss count to prevent DoS
+    if (data.missCount > 128) {
+        LOG_WARNING("Spell go: missCount capped (requested=", (int)data.missCount, ")");
+        data.missCount = 128;
+    }
+
     data.missTargets.reserve(data.missCount);
-    for (uint8_t i = 0; i < data.missCount && packet.getReadPos() + 2 <= packet.getSize(); ++i) {
+    for (uint8_t i = 0; i < data.missCount; ++i) {
+        // Each miss entry: packed GUID(1-8 bytes) + missType(1 byte), validate before reading
+        if (packet.getSize() - packet.getReadPos() < 2) {
+            LOG_WARNING("Spell go: truncated miss targets at index ", (int)i, "/", (int)data.missCount);
+            data.missCount = i;
+            break;
+        }
         SpellGoMissEntry m;
         m.targetGuid = UpdateObjectParser::readPackedGuid(packet);  // packed GUID in WotLK
-        m.missType   = (packet.getReadPos() < packet.getSize()) ? packet.readUInt8() : 0;
+        m.missType   = (packet.getSize() - packet.getReadPos() >= 1) ? packet.readUInt8() : 0;
         data.missTargets.push_back(m);
     }
 
