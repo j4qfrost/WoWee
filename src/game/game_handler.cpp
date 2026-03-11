@@ -3259,13 +3259,20 @@ void GameHandler::handlePacket(network::Packet& packet) {
 
         // Silently ignore common packets we don't handle yet
         case Opcode::SMSG_INIT_WORLD_STATES: {
-            // Minimal parse: uint32 mapId, uint32 zoneId, uint16 count, repeated (uint32 key, uint32 val)
+            // WotLK format: uint32 mapId, uint32 zoneId, uint32 areaId, uint16 count, N*(uint32 key, uint32 val)
+            // Classic/TBC format: uint32 mapId, uint32 zoneId, uint16 count, N*(uint32 key, uint32 val)
             if (packet.getSize() - packet.getReadPos() < 10) {
                 LOG_WARNING("SMSG_INIT_WORLD_STATES too short: ", packet.getSize(), " bytes");
                 break;
             }
             worldStateMapId_ = packet.readUInt32();
             worldStateZoneId_ = packet.readUInt32();
+            // WotLK adds areaId (uint32) before count; detect by checking if payload would be consistent
+            size_t remaining = packet.getSize() - packet.getReadPos();
+            bool isWotLKFormat = isActiveExpansion("wotlk") || isActiveExpansion("turtle");
+            if (isWotLKFormat && remaining >= 6) {
+                packet.readUInt32(); // areaId (WotLK only)
+            }
             uint16_t count = packet.readUInt16();
             size_t needed = static_cast<size_t>(count) * 8;
             size_t available = packet.getSize() - packet.getReadPos();
