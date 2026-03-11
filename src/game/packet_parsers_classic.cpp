@@ -1331,6 +1331,14 @@ bool ClassicPacketParsers::parseItemQueryResponse(network::Packet& packet, ItemQ
     if (packet.getReadPos() < packet.getSize())
         data.description = packet.readString();
 
+    // Post-description: PageText, LanguageID, PageMaterial, StartQuest
+    if (packet.getReadPos() + 16 <= packet.getSize()) {
+        packet.readUInt32(); // PageText
+        packet.readUInt32(); // LanguageID
+        packet.readUInt32(); // PageMaterial
+        data.startQuestId = packet.readUInt32(); // StartQuest
+    }
+
     data.valid = !data.name.empty();
     LOG_DEBUG("[Classic] Item query response: ", data.name, " (quality=", data.quality,
              " invType=", data.inventoryType, " stack=", data.maxStack, ")");

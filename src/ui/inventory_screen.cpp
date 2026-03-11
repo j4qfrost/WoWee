@@ -1918,6 +1918,11 @@ void InventoryScreen::renderItemTooltip(const game::ItemDef& item, const game::I
         }
     }
 
+    // "Begins a Quest" line (shown in yellow-green like the game)
+    if (item.startQuestId != 0) {
+        ImGui::TextColored(ImVec4(1.0f, 0.82f, 0.0f, 1.0f), "Begins a Quest");
+    }
+
     // Flavor / lore text (italic yellow in WoW, just yellow here)
     if (!item.description.empty()) {
         ImGui::TextColored(ImVec4(1.0f, 0.9f, 0.5f, 0.9f), "\"%s\"", item.description.c_str());

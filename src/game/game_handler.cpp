@@ -10763,6 +10763,7 @@ void GameHandler::rebuildOnlineInventory() {
             def.requiredLevel = infoIt->second.requiredLevel;
             def.bindType = infoIt->second.bindType;
             def.description = infoIt->second.description;
+            def.startQuestId = infoIt->second.startQuestId;
             def.extraStats.clear();
             for (const auto& es : infoIt->second.extraStats)
                 def.extraStats.push_back({es.statType, es.statValue});
@@ -10811,6 +10812,7 @@ void GameHandler::rebuildOnlineInventory() {
             def.requiredLevel = infoIt->second.requiredLevel;
             def.bindType = infoIt->second.bindType;
             def.description = infoIt->second.description;
+            def.startQuestId = infoIt->second.startQuestId;
             def.extraStats.clear();
             for (const auto& es : infoIt->second.extraStats)
                 def.extraStats.push_back({es.statType, es.statValue});
@@ -10894,6 +10896,7 @@ void GameHandler::rebuildOnlineInventory() {
                 def.requiredLevel = infoIt->second.requiredLevel;
                 def.bindType = infoIt->second.bindType;
                 def.description = infoIt->second.description;
+                def.startQuestId = infoIt->second.startQuestId;
                 def.extraStats.clear();
                 for (const auto& es : infoIt->second.extraStats)
                     def.extraStats.push_back({es.statType, es.statValue});
@@ -10943,6 +10946,7 @@ void GameHandler::rebuildOnlineInventory() {
             def.requiredLevel = infoIt->second.requiredLevel;
             def.bindType = infoIt->second.bindType;
             def.description = infoIt->second.description;
+            def.startQuestId = infoIt->second.startQuestId;
             def.extraStats.clear();
             for (const auto& es : infoIt->second.extraStats)
                 def.extraStats.push_back({es.statType, es.statValue});
@@ -11034,6 +11038,7 @@ void GameHandler::rebuildOnlineInventory() {
                 def.sellPrice = infoIt->second.sellPrice;
                 def.bindType = infoIt->second.bindType;
                 def.description = infoIt->second.description;
+                def.startQuestId = infoIt->second.startQuestId;
                 def.extraStats.clear();
                 for (const auto& es : infoIt->second.extraStats)
                     def.extraStats.push_back({es.statType, es.statValue});
