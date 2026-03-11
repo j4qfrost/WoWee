@@ -6602,12 +6602,14 @@ void GameScreen::renderBuffBar(game::GameHandler& gameHandler) {
 
     auto* assetMgr = core::Application::getInstance().getAssetManager();
 
-    // Position below the player frame in top-left
+    // Position in top-right to avoid overlapping the party frame on the left
     constexpr float ICON_SIZE = 32.0f;
-    constexpr int ICONS_PER_ROW = 8;
+    constexpr int ICONS_PER_ROW = 12;
     float barW = ICONS_PER_ROW * (ICON_SIZE + 4.0f) + 8.0f;
-    // Dock under player frame in top-left (player frame is at 10, 30 with ~110px height)
-    ImGui::SetNextWindowPos(ImVec2(10.0f, 145.0f), ImGuiCond_Always);
+    ImVec2 displaySize = ImGui::GetIO().DisplaySize;
+    float screenW = displaySize.x > 0.0f ? displaySize.x : 1280.0f;
+    // Anchor to top-right, below minimap area (~140px from top)
+    ImGui::SetNextWindowPos(ImVec2(screenW - barW - 10.0f, 140.0f), ImGuiCond_Always);
     ImGui::SetNextWindowSize(ImVec2(barW, 0), ImGuiCond_Always);
 
     ImGuiWindowFlags flags = ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove |
@@ -6618,16 +6620,22 @@ void GameScreen::renderBuffBar(game::GameHandler& gameHandler) {
     ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(2.0f, 2.0f));
 
     if (ImGui::Begin("##BuffBar", nullptr, flags)) {
-        int shown = 0;
-        for (size_t i = 0; i < auras.size() && shown < 16; ++i) {
+        // Separate buffs and debuffs; show buffs first, then debuffs with a visual gap
+        // Render one pass for buffs, one for debuffs
+        for (int pass = 0; pass < 2; ++pass) {
+            bool wantBuff = (pass == 0);
+            int shown = 0;
+        for (size_t i = 0; i < auras.size() && shown < 40; ++i) {
             const auto& aura = auras[i];
             if (aura.isEmpty()) continue;
 
+            bool isBuff = (aura.flags & 0x80) == 0;  // 0x80 = negative/debuff flag
+            if (isBuff != wantBuff) continue;  // only render matching pass
+
             if (shown > 0 && shown % ICONS_PER_ROW != 0) ImGui::SameLine();
 
-            ImGui::PushID(static_cast<int>(i));
+            ImGui::PushID(static_cast<int>(i) + (pass * 256));
 
-            bool isBuff = (aura.flags & 0x80) == 0;  // 0x80 = negative/debuff flag
             ImVec4 borderColor = isBuff ? ImVec4(0.2f, 0.8f, 0.2f, 0.9f) : ImVec4(0.8f, 0.2f, 0.2f, 0.9f);
 
             // Try to get spell icon
@@ -6722,10 +6730,14 @@ void GameScreen::renderBuffBar(game::GameHandler& gameHandler) {
 
             ImGui::PopID();
             shown++;
-        }
+        }  // end aura loop
+        // Add visual gap between buffs and debuffs
+        if (pass == 0 && shown > 0) ImGui::Spacing();
+        }  // end pass loop
+
         // Dismiss Pet button
         if (gameHandler.hasPet()) {
-            if (shown > 0) ImGui::Spacing();
+            ImGui::Spacing();
             ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.6f, 0.2f, 0.2f, 0.9f));
             ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.8f, 0.3f, 0.3f, 1.0f));
             if (ImGui::Button("Dismiss Pet", ImVec2(-1, 0))) {
