@@ -1833,6 +1833,52 @@ void InventoryScreen::renderItemTooltip(const game::ItemDef& item, const game::I
     if (!bonusLine.empty()) {
         ImGui::TextColored(green, "%s", bonusLine.c_str());
     }
+
+    // Extra stats (hit, crit, haste, AP, SP, etc.) — one line each
+    for (const auto& es : item.extraStats) {
+        const char* statName = nullptr;
+        switch (es.statType) {
+            case 0:  statName = "Mana"; break;
+            case 1:  statName = "Health"; break;
+            case 12: statName = "Defense Rating"; break;
+            case 13: statName = "Dodge Rating"; break;
+            case 14: statName = "Parry Rating"; break;
+            case 15: statName = "Block Rating"; break;
+            case 16: statName = "Hit Rating"; break;
+            case 17: statName = "Hit Rating"; break;
+            case 18: statName = "Hit Rating"; break;
+            case 19: statName = "Crit Rating"; break;
+            case 20: statName = "Crit Rating"; break;
+            case 21: statName = "Crit Rating"; break;
+            case 28: statName = "Haste Rating"; break;
+            case 29: statName = "Haste Rating"; break;
+            case 30: statName = "Haste Rating"; break;
+            case 31: statName = "Hit Rating"; break;
+            case 32: statName = "Crit Rating"; break;
+            case 35: statName = "Resilience"; break;
+            case 36: statName = "Haste Rating"; break;
+            case 37: statName = "Expertise Rating"; break;
+            case 38: statName = "Attack Power"; break;
+            case 39: statName = "Ranged Attack Power"; break;
+            case 41: statName = "Healing Power"; break;
+            case 42: statName = "Spell Damage"; break;
+            case 43: statName = "Mana per 5 sec"; break;
+            case 44: statName = "Armor Penetration"; break;
+            case 45: statName = "Spell Power"; break;
+            case 46: statName = "Health per 5 sec"; break;
+            case 47: statName = "Spell Penetration"; break;
+            case 48: statName = "Block Value"; break;
+            default: statName = nullptr; break;
+        }
+        char buf[64];
+        if (statName) {
+            std::snprintf(buf, sizeof(buf), "%+d %s", es.statValue, statName);
+        } else {
+            std::snprintf(buf, sizeof(buf), "%+d (stat %u)", es.statValue, es.statType);
+        }
+        ImGui::TextColored(green, "%s", buf);
+    }
+
     if (item.requiredLevel > 1) {
         ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.5f, 1.0f), "Requires Level %u", item.requiredLevel);
     }

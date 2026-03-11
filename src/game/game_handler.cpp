@@ -10763,6 +10763,9 @@ void GameHandler::rebuildOnlineInventory() {
             def.requiredLevel = infoIt->second.requiredLevel;
             def.bindType = infoIt->second.bindType;
             def.description = infoIt->second.description;
+            def.extraStats.clear();
+            for (const auto& es : infoIt->second.extraStats)
+                def.extraStats.push_back({es.statType, es.statValue});
         } else {
             def.name = "Item " + std::to_string(def.itemId);
             queryItemInfo(def.itemId, guid);
@@ -10808,6 +10811,9 @@ void GameHandler::rebuildOnlineInventory() {
             def.requiredLevel = infoIt->second.requiredLevel;
             def.bindType = infoIt->second.bindType;
             def.description = infoIt->second.description;
+            def.extraStats.clear();
+            for (const auto& es : infoIt->second.extraStats)
+                def.extraStats.push_back({es.statType, es.statValue});
         } else {
             def.name = "Item " + std::to_string(def.itemId);
             queryItemInfo(def.itemId, guid);
@@ -10886,6 +10892,11 @@ void GameHandler::rebuildOnlineInventory() {
                 def.sellPrice = infoIt->second.sellPrice;
                 def.itemLevel = infoIt->second.itemLevel;
                 def.requiredLevel = infoIt->second.requiredLevel;
+                def.bindType = infoIt->second.bindType;
+                def.description = infoIt->second.description;
+                def.extraStats.clear();
+                for (const auto& es : infoIt->second.extraStats)
+                    def.extraStats.push_back({es.statType, es.statValue});
                 def.bagSlots = infoIt->second.containerSlots;
             } else {
                 def.name = "Item " + std::to_string(def.itemId);
@@ -10932,6 +10943,9 @@ void GameHandler::rebuildOnlineInventory() {
             def.requiredLevel = infoIt->second.requiredLevel;
             def.bindType = infoIt->second.bindType;
             def.description = infoIt->second.description;
+            def.extraStats.clear();
+            for (const auto& es : infoIt->second.extraStats)
+                def.extraStats.push_back({es.statType, es.statValue});
             def.sellPrice = infoIt->second.sellPrice;
             def.bagSlots = infoIt->second.containerSlots;
         } else {
@@ -11018,6 +11032,11 @@ void GameHandler::rebuildOnlineInventory() {
                 def.itemLevel = infoIt->second.itemLevel;
                 def.requiredLevel = infoIt->second.requiredLevel;
                 def.sellPrice = infoIt->second.sellPrice;
+                def.bindType = infoIt->second.bindType;
+                def.description = infoIt->second.description;
+                def.extraStats.clear();
+                for (const auto& es : infoIt->second.extraStats)
+                    def.extraStats.push_back({es.statType, es.statValue});
                 def.bagSlots = infoIt->second.containerSlots;
             } else {
                 def.name = "Item " + std::to_string(def.itemId);

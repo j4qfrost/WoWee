@@ -2474,7 +2474,10 @@ bool ItemQueryResponseParser::parse(network::Packet& packet, ItemQueryResponseDa
             case 5: data.intellect = statValue; break;
             case 6: data.spirit = statValue; break;
             case 7: data.stamina = statValue; break;
-            default: break;
+            default:
+                if (statValue != 0)
+                    data.extraStats.push_back({statType, statValue});
+                break;
         }
     }
 

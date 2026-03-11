@@ -1563,6 +1563,9 @@ struct ItemQueryResponseData {
     std::array<ItemSpell, 5> spells{};
     uint32_t bindType = 0;      // 0=none, 1=BoP, 2=BoE, 3=BoU, 4=BoQ
     std::string description;    // Flavor/lore text
+    // Generic stat pairs for non-primary stats (hit, crit, haste, AP, SP, etc.)
+    struct ExtraStat { uint32_t statType = 0; int32_t statValue = 0; };
+    std::vector<ExtraStat> extraStats;
     bool valid = false;
 };
 
