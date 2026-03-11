@@ -2752,6 +2752,27 @@ void GameHandler::handlePacket(network::Packet& packet) {
             uint64_t failGuid = tbcOrClassic
                 ? (packet.getSize() - packet.getReadPos() >= 8 ? packet.readUInt64() : 0)
                 : UpdateObjectParser::readPackedGuid(packet);
+            // Read castCount + spellId + failReason
+            if (packet.getSize() - packet.getReadPos() >= 6) {
+                /*uint8_t castCount =*/ packet.readUInt8();
+                /*uint32_t spellId  =*/ packet.readUInt32();
+                uint8_t failReason = packet.readUInt8();
+                if (failGuid == playerGuid && failReason != 0) {
+                    // Show interruption/failure reason in chat for player
+                    int pt = -1;
+                    if (auto pe = entityManager.getEntity(playerGuid))
+                        if (auto pu = std::dynamic_pointer_cast<Unit>(pe))
+                            pt = static_cast<int>(pu->getPowerType());
+                    const char* reason = getSpellCastResultString(failReason, pt);
+                    if (reason) {
+                        MessageChatData emsg;
+                        emsg.type = ChatType::SYSTEM;
+                        emsg.language = ChatLanguage::UNIVERSAL;
+                        emsg.message = reason;
+                        addLocalChatMessage(emsg);
+                    }
+                }
+            }
             if (failGuid == playerGuid || failGuid == 0) {
                 // Player's own cast failed
                 casting = false;
