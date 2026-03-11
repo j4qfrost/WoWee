@@ -2049,6 +2049,88 @@ void GameScreen::renderPetFrame(game::GameHandler& gameHandler) {
         if (ImGui::SmallButton("Dismiss")) {
             gameHandler.dismissPet();
         }
+
+        // Pet action bar — show up to 10 action slots from SMSG_PET_SPELLS
+        {
+            const int slotCount = game::GameHandler::PET_ACTION_BAR_SLOTS;
+            // Filter to non-zero slots; lay them out as small icon/text buttons.
+            // Raw slot value layout (WotLK 3.3.5): low 24 bits = spell/action ID,
+            // high byte = flag (0x80=autocast on, 0x40=can-autocast, 0x0C=type).
+            // Built-in commands: id=2 follow, id=3 stay/move, id=5 attack.
+            auto* assetMgr = core::Application::getInstance().getAssetManager();
+            const float iconSz = 20.0f;
+            const float spacing = 2.0f;
+            ImGui::Separator();
+
+            int rendered = 0;
+            for (int i = 0; i < slotCount; ++i) {
+                uint32_t slotVal = gameHandler.getPetActionSlot(i);
+                if (slotVal == 0) continue;
+
+                uint32_t actionId = slotVal & 0x00FFFFFFu;
+                bool autocastOn   = (slotVal & 0xFF000000u) == 0x80000000u;
+
+                ImGui::PushID(i);
+                if (rendered > 0) ImGui::SameLine(0.0f, spacing);
+
+                // Try to show spell icon; fall back to abbreviated text label.
+                VkDescriptorSet iconTex = VK_NULL_HANDLE;
+                const char* builtinLabel = nullptr;
+                if      (actionId == 2) builtinLabel = "Fol";
+                else if (actionId == 3) builtinLabel = "Sty";
+                else if (actionId == 5) builtinLabel = "Atk";
+                else if (assetMgr)      iconTex = getSpellIcon(actionId, assetMgr);
+
+                // Tint green when autocast is on.
+                ImVec4 tint = autocastOn ? ImVec4(0.6f, 1.0f, 0.6f, 1.0f)
+                                         : ImVec4(1.0f, 1.0f, 1.0f, 1.0f);
+                bool clicked = false;
+                if (iconTex) {
+                    clicked = ImGui::ImageButton("##pa",
+                        (ImTextureID)(uintptr_t)iconTex,
+                        ImVec2(iconSz, iconSz),
+                        ImVec2(0,0), ImVec2(1,1),
+                        ImVec4(0.1f,0.1f,0.1f,0.9f), tint);
+                } else {
+                    char label[8];
+                    if (builtinLabel) {
+                        snprintf(label, sizeof(label), "%s", builtinLabel);
+                    } else {
+                        // Show first 3 chars of spell name or spell ID.
+                        std::string nm = gameHandler.getSpellName(actionId);
+                        if (nm.empty()) snprintf(label, sizeof(label), "?%u", actionId % 100);
+                        else            snprintf(label, sizeof(label), "%.3s", nm.c_str());
+                    }
+                    ImGui::PushStyleColor(ImGuiCol_Button,
+                        autocastOn ? ImVec4(0.2f,0.5f,0.2f,0.9f)
+                                   : ImVec4(0.2f,0.2f,0.3f,0.9f));
+                    clicked = ImGui::Button(label, ImVec2(iconSz + 4.0f, iconSz));
+                    ImGui::PopStyleColor();
+                }
+
+                if (clicked) {
+                    // Send pet action; use current target for spells.
+                    uint64_t targetGuid = (actionId > 5) ? gameHandler.getTargetGuid() : 0u;
+                    gameHandler.sendPetAction(slotVal, targetGuid);
+                }
+
+                // Tooltip: show spell name or built-in command name.
+                if (ImGui::IsItemHovered()) {
+                    const char* tip = builtinLabel
+                        ? (actionId == 5 ? "Attack" : actionId == 4 ? "Follow" : actionId == 2 ? "Follow" : "Stay")
+                        : nullptr;
+                    std::string spellNm;
+                    if (!tip && actionId > 5) {
+                        spellNm = gameHandler.getSpellName(actionId);
+                        if (!spellNm.empty()) tip = spellNm.c_str();
+                    }
+                    if (tip) ImGui::SetTooltip("%s", tip);
+                }
+
+                ImGui::PopID();
+                ++rendered;
+            }
+        }
     }
     ImGui::End();
 
