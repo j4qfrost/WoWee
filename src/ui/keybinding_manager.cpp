@@ -1,0 +1,254 @@
+#include "ui/keybinding_manager.hpp"
+#include <fstream>
+#include <sstream>
+#include <iostream>
+
+namespace wowee::ui {
+
+KeybindingManager& KeybindingManager::getInstance() {
+    static KeybindingManager instance;
+    return instance;
+}
+
+KeybindingManager::KeybindingManager() {
+    initializeDefaults();
+}
+
+void KeybindingManager::initializeDefaults() {
+    // Set default keybindings
+    bindings_[static_cast<int>(Action::TOGGLE_CHARACTER_SCREEN)] = ImGuiKey_C;
+    bindings_[static_cast<int>(Action::TOGGLE_INVENTORY)] = ImGuiKey_I;
+    bindings_[static_cast<int>(Action::TOGGLE_SPELLBOOK)] = ImGuiKey_S;
+    bindings_[static_cast<int>(Action::TOGGLE_TALENTS)] = ImGuiKey_K;
+    bindings_[static_cast<int>(Action::TOGGLE_QUESTS)] = ImGuiKey_L;
+    bindings_[static_cast<int>(Action::TOGGLE_MINIMAP)] = ImGuiKey_M;
+    bindings_[static_cast<int>(Action::TOGGLE_SETTINGS)] = ImGuiKey_Escape;
+    bindings_[static_cast<int>(Action::TOGGLE_CHAT)] = ImGuiKey_Enter;
+}
+
+bool KeybindingManager::isActionPressed(Action action, bool repeat) {
+    auto it = bindings_.find(static_cast<int>(action));
+    if (it == bindings_.end()) return false;
+    return ImGui::IsKeyPressed(it->second, repeat);
+}
+
+ImGuiKey KeybindingManager::getKeyForAction(Action action) const {
+    auto it = bindings_.find(static_cast<int>(action));
+    if (it == bindings_.end()) return ImGuiKey_None;
+    return it->second;
+}
+
+void KeybindingManager::setKeyForAction(Action action, ImGuiKey key) {
+    bindings_[static_cast<int>(action)] = key;
+}
+
+void KeybindingManager::resetToDefaults() {
+    bindings_.clear();
+    initializeDefaults();
+}
+
+const char* KeybindingManager::getActionName(Action action) {
+    switch (action) {
+        case Action::TOGGLE_CHARACTER_SCREEN: return "Character Screen";
+        case Action::TOGGLE_INVENTORY: return "Inventory";
+        case Action::TOGGLE_SPELLBOOK: return "Spellbook";
+        case Action::TOGGLE_TALENTS: return "Talents";
+        case Action::TOGGLE_QUESTS: return "Quests";
+        case Action::TOGGLE_MINIMAP: return "Minimap";
+        case Action::TOGGLE_SETTINGS: return "Settings";
+        case Action::TOGGLE_CHAT: return "Chat";
+        case Action::ACTION_COUNT: break;
+    }
+    return "Unknown";
+}
+
+void KeybindingManager::loadFromConfigFile(const std::string& filePath) {
+    std::ifstream file(filePath);
+    if (!file.is_open()) {
+        std::cerr << "[KeybindingManager] Failed to open config file: " << filePath << std::endl;
+        return;
+    }
+
+    std::string line;
+    bool inKeybindingsSection = false;
+
+    while (std::getline(file, line)) {
+        // Trim whitespace
+        size_t start = line.find_first_not_of(" \t\r\n");
+        size_t end = line.find_last_not_of(" \t\r\n");
+        if (start == std::string::npos) continue;
+        line = line.substr(start, end - start + 1);
+
+        // Check for section header
+        if (line == "[Keybindings]") {
+            inKeybindingsSection = true;
+            continue;
+        } else if (line[0] == '[') {
+            inKeybindingsSection = false;
+            continue;
+        }
+
+        if (!inKeybindingsSection || line.empty() || line[0] == ';' || line[0] == '#') continue;
+
+        // Parse key=value pair
+        size_t eqPos = line.find('=');
+        if (eqPos == std::string::npos) continue;
+
+        std::string action = line.substr(0, eqPos);
+        std::string keyStr = line.substr(eqPos + 1);
+
+        // Trim key string
+        size_t kStart = keyStr.find_first_not_of(" \t");
+        size_t kEnd = keyStr.find_last_not_of(" \t");
+        if (kStart != std::string::npos) {
+            keyStr = keyStr.substr(kStart, kEnd - kStart + 1);
+        }
+
+        // Map action name to enum (simplified mapping)
+        int actionIdx = -1;
+        if (action == "toggle_character_screen") actionIdx = static_cast<int>(Action::TOGGLE_CHARACTER_SCREEN);
+        else if (action == "toggle_inventory") actionIdx = static_cast<int>(Action::TOGGLE_INVENTORY);
+        else if (action == "toggle_spellbook") actionIdx = static_cast<int>(Action::TOGGLE_SPELLBOOK);
+        else if (action == "toggle_talents") actionIdx = static_cast<int>(Action::TOGGLE_TALENTS);
+        else if (action == "toggle_quests") actionIdx = static_cast<int>(Action::TOGGLE_QUESTS);
+        else if (action == "toggle_minimap") actionIdx = static_cast<int>(Action::TOGGLE_MINIMAP);
+        else if (action == "toggle_settings") actionIdx = static_cast<int>(Action::TOGGLE_SETTINGS);
+        else if (action == "toggle_chat") actionIdx = static_cast<int>(Action::TOGGLE_CHAT);
+
+        if (actionIdx < 0) continue;
+
+        // Parse key string to ImGuiKey (simple mapping of common keys)
+        ImGuiKey key = ImGuiKey_None;
+        if (keyStr.length() == 1) {
+            // Single character key (A-Z, 0-9)
+            char c = keyStr[0];
+            if (c >= 'A' && c <= 'Z') {
+                key = static_cast<ImGuiKey>(ImGuiKey_A + (c - 'A'));
+            } else if (c >= '0' && c <= '9') {
+                key = static_cast<ImGuiKey>(ImGuiKey_0 + (c - '0'));
+            }
+        } else if (keyStr == "Escape") {
+            key = ImGuiKey_Escape;
+        } else if (keyStr == "Enter") {
+            key = ImGuiKey_Enter;
+        } else if (keyStr == "Tab") {
+            key = ImGuiKey_Tab;
+        } else if (keyStr == "Backspace") {
+            key = ImGuiKey_Backspace;
+        } else if (keyStr == "Space") {
+            key = ImGuiKey_Space;
+        } else if (keyStr == "Delete") {
+            key = ImGuiKey_Delete;
+        } else if (keyStr == "Home") {
+            key = ImGuiKey_Home;
+        } else if (keyStr == "End") {
+            key = ImGuiKey_End;
+        } else if (keyStr.find("F") == 0 && keyStr.length() <= 3) {
+            // F1-F12 keys
+            int fNum = std::stoi(keyStr.substr(1));
+            if (fNum >= 1 && fNum <= 12) {
+                key = static_cast<ImGuiKey>(ImGuiKey_F1 + (fNum - 1));
+            }
+        }
+
+        if (key != ImGuiKey_None) {
+            bindings_[actionIdx] = key;
+        }
+    }
+
+    file.close();
+    std::cout << "[KeybindingManager] Loaded keybindings from " << filePath << std::endl;
+}
+
+void KeybindingManager::saveToConfigFile(const std::string& filePath) const {
+    std::ifstream inFile(filePath);
+    std::string content;
+    std::string line;
+
+    // Read existing file, removing [Keybindings] section if it exists
+    bool inKeybindingsSection = false;
+    if (inFile.is_open()) {
+        while (std::getline(inFile, line)) {
+            if (line == "[Keybindings]") {
+                inKeybindingsSection = true;
+                continue;
+            } else if (line[0] == '[') {
+                inKeybindingsSection = false;
+            }
+
+            if (!inKeybindingsSection) {
+                content += line + "\n";
+            }
+        }
+        inFile.close();
+    }
+
+    // Append new Keybindings section
+    content += "[Keybindings]\n";
+
+    static const struct {
+        Action action;
+        const char* name;
+    } actionMap[] = {
+        {Action::TOGGLE_CHARACTER_SCREEN, "toggle_character_screen"},
+        {Action::TOGGLE_INVENTORY, "toggle_inventory"},
+        {Action::TOGGLE_SPELLBOOK, "toggle_spellbook"},
+        {Action::TOGGLE_TALENTS, "toggle_talents"},
+        {Action::TOGGLE_QUESTS, "toggle_quests"},
+        {Action::TOGGLE_MINIMAP, "toggle_minimap"},
+        {Action::TOGGLE_SETTINGS, "toggle_settings"},
+        {Action::TOGGLE_CHAT, "toggle_chat"},
+    };
+
+    for (const auto& [action, nameStr] : actionMap) {
+        auto it = bindings_.find(static_cast<int>(action));
+        if (it == bindings_.end()) continue;
+
+        ImGuiKey key = it->second;
+        std::string keyStr;
+
+        // Convert ImGuiKey to string
+        if (key >= ImGuiKey_A && key <= ImGuiKey_Z) {
+            keyStr += static_cast<char>('A' + (key - ImGuiKey_A));
+        } else if (key >= ImGuiKey_0 && key <= ImGuiKey_9) {
+            keyStr += static_cast<char>('0' + (key - ImGuiKey_0));
+        } else if (key == ImGuiKey_Escape) {
+            keyStr = "Escape";
+        } else if (key == ImGuiKey_Enter) {
+            keyStr = "Enter";
+        } else if (key == ImGuiKey_Tab) {
+            keyStr = "Tab";
+        } else if (key == ImGuiKey_Backspace) {
+            keyStr = "Backspace";
+        } else if (key == ImGuiKey_Space) {
+            keyStr = "Space";
+        } else if (key == ImGuiKey_Delete) {
+            keyStr = "Delete";
+        } else if (key == ImGuiKey_Home) {
+            keyStr = "Home";
+        } else if (key == ImGuiKey_End) {
+            keyStr = "End";
+        } else if (key >= ImGuiKey_F1 && key <= ImGuiKey_F12) {
+            keyStr = "F" + std::to_string(1 + (key - ImGuiKey_F1));
+        }
+
+        if (!keyStr.empty()) {
+            content += nameStr;
+            content += "=";
+            content += keyStr;
+            content += "\n";
+        }
+    }
+
+    // Write back to file
+    std::ofstream outFile(filePath);
+    if (outFile.is_open()) {
+        outFile << content;
+        outFile.close();
+        std::cout << "[KeybindingManager] Saved keybindings to " << filePath << std::endl;
+    } else {
+        std::cerr << "[KeybindingManager] Failed to write config file: " << filePath << std::endl;
+    }
+}
+
+}  // namespace wowee::ui

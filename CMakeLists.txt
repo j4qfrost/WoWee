@@ -550,6 +550,7 @@ set(WOWEE_SOURCES
     src/ui/quest_log_screen.cpp
     src/ui/spellbook_screen.cpp
     src/ui/talent_screen.cpp
+    src/ui/keybinding_manager.cpp
 
     # Main
     src/main.cpp
@@ -653,6 +654,7 @@ set(WOWEE_HEADERS
     include/ui/inventory_screen.hpp
     include/ui/spellbook_screen.hpp
     include/ui/talent_screen.hpp
+    include/ui/keybinding_manager.hpp
 )
 
 set(WOWEE_PLATFORM_SOURCES)
