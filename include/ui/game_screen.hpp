@@ -63,10 +63,12 @@ private:
     // UI state
     bool showEntityWindow = false;
     bool showChatWindow = true;
+    bool showMinimap_ = true;  // M key toggles minimap
     bool showNameplates_ = true;  // V key toggles nameplates
     bool showPlayerInfo = false;
     bool showSocialFrame_ = false;  // O key toggles social/friends list
     bool showGuildRoster_ = false;
+    bool showRaidFrames_ = true;  // F key toggles raid/party frames
     bool showWorldMap_ = false;  // W key toggles world map
     std::string selectedGuildMember_;
     bool showGuildNoteEdit_ = false;

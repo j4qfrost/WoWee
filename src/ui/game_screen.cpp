@@ -408,7 +408,9 @@ void GameScreen::render(game::GameHandler& gameHandler) {
     renderNameplates(gameHandler);  // player names always shown; NPC plates gated by showNameplates_
     renderBattlegroundScore(gameHandler);
     renderCombatText(gameHandler);
-    renderPartyFrames(gameHandler);
+    if (showRaidFrames_) {
+        renderPartyFrames(gameHandler);
+    }
     renderBossFrames(gameHandler);
     renderGroupInvitePopup(gameHandler);
     renderDuelRequestPopup(gameHandler);
@@ -440,7 +442,9 @@ void GameScreen::render(game::GameHandler& gameHandler) {
     renderDungeonFinderWindow(gameHandler);
     renderInstanceLockouts(gameHandler);
     // renderQuestMarkers(gameHandler);  // Disabled - using 3D billboard markers now
-    renderMinimapMarkers(gameHandler);
+    if (showMinimap_) {
+        renderMinimapMarkers(gameHandler);
+    }
     renderDeathScreen(gameHandler);
     renderReclaimCorpseButton(gameHandler);
     renderResurrectDialog(gameHandler);
@@ -1481,6 +1485,14 @@ void GameScreen::processTargetInput(game::GameHandler& gameHandler) {
 
         if (KeybindingManager::getInstance().isActionPressed(KeybindingManager::Action::TOGGLE_WORLD_MAP)) {
             showWorldMap_ = !showWorldMap_;
+        }
+
+        if (KeybindingManager::getInstance().isActionPressed(KeybindingManager::Action::TOGGLE_MINIMAP)) {
+            showMinimap_ = !showMinimap_;
+        }
+
+        if (KeybindingManager::getInstance().isActionPressed(KeybindingManager::Action::TOGGLE_RAID_FRAMES)) {
+            showRaidFrames_ = !showRaidFrames_;
         }
 
         // Action bar keys (1-9, 0, -, =)
