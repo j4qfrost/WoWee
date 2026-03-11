@@ -1952,40 +1952,27 @@ VkDescriptorSet WMORenderer::allocateMaterialSet() {
 
 bool WMORenderer::isGroupVisible(const GroupResources& group, const glm::mat4& modelMatrix,
                                  const Camera& camera) const {
-    // Simple frustum culling using bounding box
-    // Transform bounding box corners to world space
-    glm::vec3 corners[8] = {
-        glm::vec3(group.boundingBoxMin.x, group.boundingBoxMin.y, group.boundingBoxMin.z),
-        glm::vec3(group.boundingBoxMax.x, group.boundingBoxMin.y, group.boundingBoxMin.z),
-        glm::vec3(group.boundingBoxMin.x, group.boundingBoxMax.y, group.boundingBoxMin.z),
-        glm::vec3(group.boundingBoxMax.x, group.boundingBoxMax.y, group.boundingBoxMin.z),
-        glm::vec3(group.boundingBoxMin.x, group.boundingBoxMin.y, group.boundingBoxMax.z),
-        glm::vec3(group.boundingBoxMax.x, group.boundingBoxMin.y, group.boundingBoxMax.z),
-        glm::vec3(group.boundingBoxMin.x, group.boundingBoxMax.y, group.boundingBoxMax.z),
-        glm::vec3(group.boundingBoxMax.x, group.boundingBoxMax.y, group.boundingBoxMax.z)
-    };
+    // Proper frustum-AABB intersection test for accurate visibility culling
+    // Transform bounding box min/max to world space
+    glm::vec3 localMin = group.boundingBoxMin;
+    glm::vec3 localMax = group.boundingBoxMax;
 
-    // Transform corners to world space
-    for (int i = 0; i < 8; i++) {
-        glm::vec4 worldPos = modelMatrix * glm::vec4(corners[i], 1.0f);
-        corners[i] = glm::vec3(worldPos);
-    }
+    // Transform min and max to world space
+    glm::vec4 worldMinH = modelMatrix * glm::vec4(localMin, 1.0f);
+    glm::vec4 worldMaxH = modelMatrix * glm::vec4(localMax, 1.0f);
+    glm::vec3 worldMin = glm::vec3(worldMinH);
+    glm::vec3 worldMax = glm::vec3(worldMaxH);
 
-    // Simple check: if all corners are behind camera, cull
-    // (This is a very basic culling implementation - a full frustum test would be better)
-    glm::vec3 forward = camera.getForward();
-    glm::vec3 camPos = camera.getPosition();
+    // Ensure min/max are correct after transformation (handles non-uniform scaling)
+    glm::vec3 boundsMin = glm::min(worldMin, worldMax);
+    glm::vec3 boundsMax = glm::max(worldMin, worldMax);
 
-    int behindCount = 0;
-    for (int i = 0; i < 8; i++) {
-        glm::vec3 toCorner = corners[i] - camPos;
-        if (glm::dot(toCorner, forward) < 0.0f) {
-            behindCount++;
-        }
-    }
+    // Extract frustum planes from view-projection matrix
+    Frustum frustum;
+    frustum.extractFromMatrix(camera.getViewProjectionMatrix());
 
-    // If all corners are behind camera, cull
-    return behindCount < 8;
+    // Test if AABB intersects view frustum
+    return frustum.intersectsAABB(boundsMin, boundsMax);
 }
 
 int WMORenderer::findContainingGroup(const ModelData& model, const glm::vec3& localPos) const {
