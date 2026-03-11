@@ -666,12 +666,24 @@ bool MotdParser::parse(network::Packet& packet, MotdData& data) {
 
     uint32_t lineCount = packet.readUInt32();
 
+    // Cap lineCount to prevent unbounded memory allocation
+    const uint32_t MAX_MOTD_LINES = 64;
+    if (lineCount > MAX_MOTD_LINES) {
+        LOG_WARNING("MotdParser: lineCount capped (requested=", lineCount, ")");
+        lineCount = MAX_MOTD_LINES;
+    }
+
     LOG_INFO("Parsed SMSG_MOTD: ", lineCount, " line(s)");
 
     data.lines.clear();
     data.lines.reserve(lineCount);
 
     for (uint32_t i = 0; i < lineCount; ++i) {
+        // Validate at least 1 byte available for the string
+        if (packet.getReadPos() >= packet.getSize()) {
+            LOG_WARNING("MotdParser: truncated at line ", i + 1);
+            break;
+        }
         std::string line = packet.readString();
         data.lines.push_back(line);
         LOG_DEBUG("  MOTD[", i + 1, "]: ", line);
@@ -1182,6 +1194,11 @@ bool UpdateObjectParser::parseUpdateFields(network::Packet& packet, UpdateBlock&
     static thread_local std::vector<uint32_t> updateMask;
     updateMask.resize(blockCount);
     for (int i = 0; i < blockCount; ++i) {
+        // Validate 4 bytes available before each block read
+        if (packet.getReadPos() + 4 > packet.getSize()) {
+            LOG_WARNING("UpdateObjectParser: truncated update mask at block ", i);
+            return false;
+        }
         updateMask[i] = packet.readUInt32();
     }
 
@@ -1205,6 +1222,11 @@ bool UpdateObjectParser::parseUpdateFields(network::Packet& packet, UpdateBlock&
 #endif
             if (fieldIndex > highestSetBit) {
                 highestSetBit = fieldIndex;
+            }
+            // Validate 4 bytes available before reading field value
+            if (packet.getReadPos() + 4 > packet.getSize()) {
+                LOG_WARNING("UpdateObjectParser: truncated field value at field ", fieldIndex);
+                return false;
             }
             uint32_t value = packet.readUInt32();
             // fieldIndex is monotonically increasing here, so end() is a good insertion hint.
