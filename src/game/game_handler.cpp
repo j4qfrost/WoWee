@@ -5129,14 +5129,24 @@ void GameHandler::handlePacket(network::Packet& packet) {
         case Opcode::SMSG_AURACASTLOG:
         case Opcode::SMSG_SPELLBREAKLOG:
         case Opcode::SMSG_SPELLDAMAGESHIELD: {
-            // victimGuid(8) + casterGuid(8) + spellId(4) + damage(4) + schoolMask(4)
-            if (packet.getSize() - packet.getReadPos() < 24) {
+            // Classic/TBC: uint64 victim + uint64 caster + spellId(4) + damage(4) + schoolMask(4)
+            // WotLK:       packed_guid victim + packed_guid caster + spellId(4) + damage(4) + absorbed(4) + schoolMask(4)
+            const bool shieldClassicLike = isClassicLikeExpansion() || isActiveExpansion("tbc");
+            const size_t shieldMinSz = shieldClassicLike ? 24u : 2u;
+            if (packet.getSize() - packet.getReadPos() < shieldMinSz) {
                 packet.setReadPos(packet.getSize()); break;
             }
-            uint64_t victimGuid  = packet.readUInt64();
-            uint64_t casterGuid  = packet.readUInt64();
+            uint64_t victimGuid = shieldClassicLike
+                ? packet.readUInt64() : UpdateObjectParser::readPackedGuid(packet);
+            uint64_t casterGuid = shieldClassicLike
+                ? packet.readUInt64() : UpdateObjectParser::readPackedGuid(packet);
+            if (packet.getSize() - packet.getReadPos() < 12) {
+                packet.setReadPos(packet.getSize()); break;
+            }
             /*uint32_t spellId =*/ packet.readUInt32();
             uint32_t damage      = packet.readUInt32();
+            if (!shieldClassicLike && packet.getSize() - packet.getReadPos() >= 4)
+                /*uint32_t absorbed =*/ packet.readUInt32();
             /*uint32_t school =*/  packet.readUInt32();
             // Show combat text: damage shield reflect
             if (casterGuid == playerGuid) {
