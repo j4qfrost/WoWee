@@ -2430,8 +2430,8 @@ void GameHandler::handlePacket(network::Packet& packet) {
                         CombatTextEntry::DODGE,   // 1=DODGE
                         CombatTextEntry::PARRY,   // 2=PARRY
                         CombatTextEntry::BLOCK,   // 3=BLOCK
-                        CombatTextEntry::MISS,    // 4=EVADE  → show as MISS
-                        CombatTextEntry::MISS,    // 5=IMMUNE → show as MISS
+                        CombatTextEntry::MISS,    // 4=EVADE
+                        CombatTextEntry::IMMUNE,  // 5=IMMUNE
                         CombatTextEntry::MISS,    // 6=DEFLECT
                         CombatTextEntry::MISS,    // 7=ABSORB
                         CombatTextEntry::MISS,    // 8=RESIST
@@ -13964,8 +13964,8 @@ void GameHandler::handleSpellGo(network::Packet& packet) {
             CombatTextEntry::DODGE,   // 1=DODGE
             CombatTextEntry::PARRY,   // 2=PARRY
             CombatTextEntry::BLOCK,   // 3=BLOCK
-            CombatTextEntry::MISS,    // 4=EVADE  → show as MISS
-            CombatTextEntry::MISS,    // 5=IMMUNE → show as MISS
+            CombatTextEntry::MISS,    // 4=EVADE
+            CombatTextEntry::IMMUNE,  // 5=IMMUNE
             CombatTextEntry::MISS,    // 6=DEFLECT
             CombatTextEntry::MISS,    // 7=ABSORB
             CombatTextEntry::MISS,    // 8=RESIST
