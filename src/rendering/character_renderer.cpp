@@ -3072,30 +3072,7 @@ bool CharacterRenderer::attachWeapon(uint32_t charInstanceId, uint32_t attachmen
             }
         }
     }
-    // Fallback to key-bone lookup for weapon hand attachment IDs.
-    if (!found && (attachmentId == 1 || attachmentId == 2)) {
-        int32_t targetKeyBone = (attachmentId == 1) ? 26 : 27;
-        for (size_t i = 0; i < charModel.bones.size(); i++) {
-            if (charModel.bones[i].keyBoneId == targetKeyBone) {
-                boneIndex = static_cast<uint16_t>(i);
-                found = true;
-                break;
-            }
-        }
-    }
-
-    // Fallback for head attachment (ID 11): try common head bone indices
-    // Some models may not have attachment 11 defined, but have bone 0 or 1 as head
-    if (!found && attachmentId == 11 && charModel.bones.size() > 0) {
-        // Try bone 0 first (common for head in many humanoid models)
-        boneIndex = 0;
-        found = true;
-    }
-
-    // Validate bone index (bad attachment tables should not silently bind to origin)
-    if (found && boneIndex >= charModel.bones.size()) {
-        found = false;
-    }
+    // Fallback: key-bone lookup for weapon hand attachment IDs (ID 1 = right hand, ID 2 = left hand)
     if (!found && (attachmentId == 1 || attachmentId == 2)) {
         int32_t targetKeyBone = (attachmentId == 1) ? 26 : 27;
         for (size_t i = 0; i < charModel.bones.size(); i++) {
@@ -3106,6 +3083,18 @@ bool CharacterRenderer::attachWeapon(uint32_t charInstanceId, uint32_t attachmen
                 break;
             }
         }
+    }
+
+    // Fallback for head attachment (ID 11): use bone 0 if attachment not defined
+    // Some models may not have explicit attachment 11 but use bone 0 as head
+    if (!found && attachmentId == 11 && charModel.bones.size() > 0) {
+        boneIndex = 0;
+        found = true;
+    }
+
+    // Validate bone index (bad attachment tables should not silently bind to origin)
+    if (found && boneIndex >= charModel.bones.size()) {
+        found = false;
     }
 
     if (!found) {
