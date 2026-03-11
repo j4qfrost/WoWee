@@ -377,6 +377,13 @@ void CameraController::update(float deltaTime) {
     if (mounted_) sitting = false;
     xKeyWasDown = xDown;
 
+    // Reset camera with R key (edge-triggered) — only when UI doesn't want keyboard
+    bool rDown = !uiWantsKeyboard && input.isKeyPressed(SDL_SCANCODE_R);
+    if (rDown && !rKeyWasDown) {
+        reset();
+    }
+    rKeyWasDown = rDown;
+
     // Stand up on any movement key or jump while sitting (WoW behaviour)
     if (!uiWantsKeyboard && sitting && !movementSuppressed) {
         bool anyMoveKey =
@@ -1851,8 +1858,7 @@ void CameraController::update(float deltaTime) {
     wasJumping = nowJump;
     wasFalling = !grounded && verticalVelocity <= 0.0f;
 
-    // R key disabled — was camera reset, conflicts with chat reply
-    rKeyWasDown = false;
+    // R key is now handled above with chat safeguard (WantTextInput check)
 }
 
 void CameraController::processMouseMotion(const SDL_MouseMotionEvent& event) {
