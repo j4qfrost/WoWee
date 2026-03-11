@@ -1,6 +1,6 @@
 # Project Status
 
-**Last updated**: 2026-03-07
+**Last updated**: 2026-03-11
 
 ## What This Repo Is
 
@@ -37,8 +37,8 @@ In progress / known gaps:
 - Transports: M2 transports (trams) working with position-delta riding; WMO transports (ships, zeppelins) working with path following; some edge cases remain
 - 3D positional audio: not implemented (mono/stereo only)
 - Visual edge cases: some M2/WMO rendering gaps (character shin mesh, some particle effects)
-- Interior rendering: WMO interior shadows disabled (too dark); lava steam particles sparse
-- Water refraction: implemented but disabled by default (can cause VK_ERROR_DEVICE_LOST on some GPUs)
+- Lava steam particles: sparse in some areas (tuning opportunity)
+- Water refraction: implemented but disabled by default (can cause VK_ERROR_DEVICE_LOST on some GPUs); currently requires FSR to be active
 
 ## Where To Look
 

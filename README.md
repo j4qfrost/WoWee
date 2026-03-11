@@ -69,7 +69,7 @@ Protocol Compatible with **Vanilla (Classic) 1.12 + TBC 2.4.3 + WotLK 3.3.5a**.
 - **Pets** -- Pet tracking via SMSG_PET_SPELLS, action bar (10 slots with icon/autocast tinting/tooltips), dismiss button
 - **Map Exploration** -- Subzone-level fog-of-war reveal matching retail behavior
 - **Warden** -- Warden anti-cheat module execution via Unicorn Engine x86 emulation (cross-platform, no Wine)
-- **UI** -- Loading screens with progress bar, settings window (shadow distance slider), minimap with zoom/rotation/square mode, top-right minimap mute speaker, separate bag windows with compact-empty mode (aggregate view)
+- **UI** -- Loading screens with progress bar, settings window with graphics quality presets (LOW/MEDIUM/HIGH/ULTRA), shadow distance slider, minimap with zoom/rotation/square mode, top-right minimap mute speaker, separate bag windows with compact-empty mode (aggregate view)
 
 ## Building
 
