@@ -2901,18 +2901,13 @@ bool XpGainParser::parse(network::Packet& packet, XpGainData& data) {
 // Phase 3: Spells, Action Bar, Auras
 // ============================================================
 
-bool InitialSpellsParser::parse(network::Packet& packet, InitialSpellsData& data) {
-    size_t packetSize = packet.getSize();
+bool InitialSpellsParser::parse(network::Packet& packet, InitialSpellsData& data,
+                                bool vanillaFormat) {
     data.talentSpec = packet.readUInt8();
     uint16_t spellCount = packet.readUInt16();
 
-    // Detect vanilla (uint16 spellId) vs WotLK (uint32 spellId) format
-    // Vanilla: 4 bytes/spell (uint16 id + uint16 slot), WotLK: 6 bytes/spell (uint32 id + uint16 unk)
-    size_t remainingAfterHeader = packetSize - 3; // subtract talentSpec(1) + spellCount(2)
-    bool vanillaFormat = remainingAfterHeader < static_cast<size_t>(spellCount) * 6 + 2;
-
-    LOG_DEBUG("SMSG_INITIAL_SPELLS: packetSize=", packetSize, " bytes, spellCount=", spellCount,
-              vanillaFormat ? " (vanilla uint16 format)" : " (WotLK uint32 format)");
+    LOG_DEBUG("SMSG_INITIAL_SPELLS: spellCount=", spellCount,
+              vanillaFormat ? " (vanilla uint16 format)" : " (TBC/WotLK uint32 format)");
 
     data.spellIds.reserve(spellCount);
     for (uint16_t i = 0; i < spellCount; ++i) {

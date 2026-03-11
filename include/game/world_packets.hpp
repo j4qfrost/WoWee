@@ -1758,7 +1758,10 @@ struct InitialSpellsData {
 
 class InitialSpellsParser {
 public:
-    static bool parse(network::Packet& packet, InitialSpellsData& data);
+    // vanillaFormat=true: Classic 1.12 uint16 spellId + uint16 slot (4 bytes/spell)
+    // vanillaFormat=false: TBC/WotLK uint32 spellId + uint16 unk (6 bytes/spell)
+    static bool parse(network::Packet& packet, InitialSpellsData& data,
+                      bool vanillaFormat = false);
 };
 
 /** CMSG_CAST_SPELL packet builder */
