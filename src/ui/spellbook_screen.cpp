@@ -92,6 +92,11 @@ void SpellbookScreen::loadSpellDBC(pipeline::AssetManager* assetManager) {
         }
     }
 
+    // schoolField / isSchoolEnum are declared before the lambda so the WotLK fallback path
+    // can override them before the second tryLoad call.
+    uint32_t schoolField_  = UINT32_MAX;
+    bool     isSchoolEnum_ = false;
+
     auto tryLoad = [&](uint32_t idField, uint32_t attrField, uint32_t iconField,
                        uint32_t nameField, uint32_t rankField, uint32_t tooltipField,
                        uint32_t powerTypeField, uint32_t manaCostField,
@@ -128,6 +133,12 @@ void SpellbookScreen::loadSpellDBC(pipeline::AssetManager* assetManager) {
                     if (rangeIt != rangeMap.end()) info.rangeIndex = static_cast<uint32_t>(rangeIt->second);
                 }
             }
+            if (schoolField_ < fc) {
+                uint32_t raw = dbc->getUInt32(i, schoolField_);
+                // Classic/Turtle use a 0-6 school enum; TBC/WotLK use a bitmask.
+                // enum→mask: schoolEnum N maps to bit (1u << N), e.g. 0→1 (physical), 4→16 (frost).
+                info.schoolMask = isSchoolEnum_ ? (raw <= 6 ? (1u << raw) : 0u) : raw;
+            }
 
             if (!info.name.empty()) {
                 spellData[spellId] = std::move(info);
@@ -149,6 +160,13 @@ void SpellbookScreen::loadSpellDBC(pipeline::AssetManager* assetManager) {
         try { manaCostField    = (*spellL)["ManaCost"]; } catch (...) {}
         try { castTimeIdxField = (*spellL)["CastingTimeIndex"]; } catch (...) {}
         try { rangeIdxField    = (*spellL)["RangeIndex"]; } catch (...) {}
+        // Try SchoolMask (TBC/WotLK bitmask) then SchoolEnum (Classic/Turtle 0-6 value)
+        schoolField_  = UINT32_MAX;
+        isSchoolEnum_ = false;
+        try { schoolField_ = (*spellL)["SchoolMask"]; } catch (...) {}
+        if (schoolField_ == UINT32_MAX) {
+            try { schoolField_ = (*spellL)["SchoolEnum"]; isSchoolEnum_ = true; } catch (...) {}
+        }
         tryLoad((*spellL)["ID"], (*spellL)["Attributes"], (*spellL)["IconID"],
                 (*spellL)["Name"], (*spellL)["Rank"], tooltipField,
                 powerTypeField, manaCostField, castTimeIdxField, rangeIdxField,
@@ -157,7 +175,9 @@ void SpellbookScreen::loadSpellDBC(pipeline::AssetManager* assetManager) {
 
     if (spellData.empty() && fieldCount >= 200) {
         LOG_INFO("Spellbook: Retrying with WotLK field indices (DBC has ", fieldCount, " fields)");
-        // WotLK Spell.dbc field indices (verified against 3.3.5a schema)
+        // WotLK Spell.dbc field indices (verified against 3.3.5a schema); SchoolMask at field 225
+        schoolField_  = 225;
+        isSchoolEnum_ = false;
         tryLoad(0, 4, 133, 136, 153, 139, 14, 39, 47, 49, "WotLK fallback");
     }
 
@@ -433,6 +453,32 @@ void SpellbookScreen::renderSpellTooltip(const SpellInfo* info, game::GameHandle
     // Passive indicator
     if (info->isPassive()) {
         ImGui::TextColored(ImVec4(1.0f, 1.0f, 0.0f, 1.0f), "Passive");
+    }
+
+    // Spell school — only show for non-physical schools (physical is the default/implicit)
+    if (info->schoolMask != 0 && info->schoolMask != 1 /*physical*/) {
+        struct SchoolEntry { uint32_t mask; const char* name; ImVec4 color; };
+        static constexpr SchoolEntry kSchools[] = {
+            { 2,  "Holy",    { 1.0f, 1.0f, 0.6f, 1.0f } },
+            { 4,  "Fire",    { 1.0f, 0.5f, 0.1f, 1.0f } },
+            { 8,  "Nature",  { 0.4f, 0.9f, 0.3f, 1.0f } },
+            { 16, "Frost",   { 0.5f, 0.8f, 1.0f, 1.0f } },
+            { 32, "Shadow",  { 0.7f, 0.4f, 1.0f, 1.0f } },
+            { 64, "Arcane",  { 0.9f, 0.5f, 1.0f, 1.0f } },
+        };
+        bool first = true;
+        for (const auto& s : kSchools) {
+            if (info->schoolMask & s.mask) {
+                if (!first) ImGui::SameLine(0, 0);
+                if (first) {
+                    ImGui::TextColored(s.color, "%s", s.name);
+                    first = false;
+                } else {
+                    ImGui::SameLine(0, 2);
+                    ImGui::TextColored(s.color, "/%s", s.name);
+                }
+            }
+        }
     }
 
     // Resource cost + cast time on same row (WoW style)

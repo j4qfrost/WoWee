@@ -25,6 +25,7 @@ struct SpellInfo {
     uint32_t manaCost = 0;       // Mana cost
     uint32_t powerType = 0;      // 0=mana, 1=rage, 2=focus, 3=energy
     uint32_t rangeIndex = 0;     // Range index from SpellRange.dbc
+    uint32_t schoolMask = 0;     // School bitmask (1=phys,2=holy,4=fire,8=nature,16=frost,32=shadow,64=arcane)
     bool isPassive() const { return (attributes & 0x40) != 0; }
 };
 
