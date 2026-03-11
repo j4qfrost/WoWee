@@ -2393,20 +2393,23 @@ void GameScreen::renderTargetFrame(game::GameHandler& gameHandler) {
                         IM_COL32(255, 220, 50, 255), chargeStr);
                 }
 
-                // Tooltip
+                // Tooltip: rich spell info + remaining duration
                 if (ImGui::IsItemHovered()) {
-                    std::string name = spellbookScreen.lookupSpellName(aura.spellId, assetMgr);
-                    if (name.empty()) name = "Spell #" + std::to_string(aura.spellId);
+                    ImGui::BeginTooltip();
+                    bool richOk = spellbookScreen.renderSpellInfoTooltip(aura.spellId, gameHandler, assetMgr);
+                    if (!richOk) {
+                        std::string name = spellbookScreen.lookupSpellName(aura.spellId, assetMgr);
+                        if (name.empty()) name = "Spell #" + std::to_string(aura.spellId);
+                        ImGui::Text("%s", name.c_str());
+                    }
                     if (tRemainMs > 0) {
                         int seconds = tRemainMs / 1000;
-                        if (seconds < 60) {
-                            ImGui::SetTooltip("%s (%ds)", name.c_str(), seconds);
-                        } else {
-                            ImGui::SetTooltip("%s (%dm %ds)", name.c_str(), seconds / 60, seconds % 60);
-                        }
-                    } else {
-                        ImGui::SetTooltip("%s", name.c_str());
+                        char durBuf[32];
+                        if (seconds < 60) snprintf(durBuf, sizeof(durBuf), "Remaining: %ds", seconds);
+                        else snprintf(durBuf, sizeof(durBuf), "Remaining: %dm %ds", seconds / 60, seconds % 60);
+                        ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "%s", durBuf);
                     }
+                    ImGui::EndTooltip();
                 }
 
                 ImGui::PopID();
@@ -6394,20 +6397,23 @@ void GameScreen::renderBuffBar(game::GameHandler& gameHandler) {
                 }
             }
 
-            // Tooltip with spell name and countdown
+            // Tooltip: rich spell info + remaining duration
             if (ImGui::IsItemHovered()) {
-                std::string name = spellbookScreen.lookupSpellName(aura.spellId, assetMgr);
-                if (name.empty()) name = "Spell #" + std::to_string(aura.spellId);
+                ImGui::BeginTooltip();
+                bool richOk = spellbookScreen.renderSpellInfoTooltip(aura.spellId, gameHandler, assetMgr);
+                if (!richOk) {
+                    std::string name = spellbookScreen.lookupSpellName(aura.spellId, assetMgr);
+                    if (name.empty()) name = "Spell #" + std::to_string(aura.spellId);
+                    ImGui::Text("%s", name.c_str());
+                }
                 if (remainMs > 0) {
                     int seconds = remainMs / 1000;
-                    if (seconds < 60) {
-                        ImGui::SetTooltip("%s (%ds)", name.c_str(), seconds);
-                    } else {
-                        ImGui::SetTooltip("%s (%dm %ds)", name.c_str(), seconds / 60, seconds % 60);
-                    }
-                } else {
-                    ImGui::SetTooltip("%s", name.c_str());
+                    char durBuf[32];
+                    if (seconds < 60) snprintf(durBuf, sizeof(durBuf), "Remaining: %ds", seconds);
+                    else snprintf(durBuf, sizeof(durBuf), "Remaining: %dm %ds", seconds / 60, seconds % 60);
+                    ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "%s", durBuf);
                 }
+                ImGui::EndTooltip();
             }
 
             ImGui::PopID();
