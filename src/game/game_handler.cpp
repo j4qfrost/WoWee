@@ -4175,12 +4175,31 @@ void GameHandler::handlePacket(network::Packet& packet) {
             break;
         }
         case Opcode::SMSG_QUEST_FORCE_REMOVE: {
-            // Minimal parse: uint32 questId
+            // This opcode is aliased to SMSG_SET_REST_START in the opcode table
+            // because both share opcode 0x21E in WotLK 3.3.5a.
+            // In WotLK: payload = uint32 areaId (entering rest) or 0 (leaving rest).
+            // In Classic/TBC: payload = uint32 questId (force-remove a quest).
             if (packet.getSize() - packet.getReadPos() < 4) {
-                LOG_WARNING("SMSG_QUEST_FORCE_REMOVE too short");
+                LOG_WARNING("SMSG_QUEST_FORCE_REMOVE/SET_REST_START too short");
                 break;
             }
-            uint32_t questId = packet.readUInt32();
+            uint32_t value = packet.readUInt32();
+
+            // WotLK uses this opcode as SMSG_SET_REST_START: non-zero = entering
+            // a rest area (inn/city), zero = leaving. Classic/TBC use it for quest removal.
+            if (!isClassicLikeExpansion() && !isActiveExpansion("tbc")) {
+                // WotLK: treat as SET_REST_START
+                bool nowResting = (value != 0);
+                if (nowResting != isResting_) {
+                    isResting_ = nowResting;
+                    addSystemChatMessage(isResting_ ? "You are now resting."
+                                                    : "You are no longer resting.");
+                }
+                break;
+            }
+
+            // Classic/TBC: treat as QUEST_FORCE_REMOVE (uint32 questId)
+            uint32_t questId = value;
             clearPendingQuestAccept(questId);
             pendingQuestQueryIds_.erase(questId);
             if (questId == 0) {
@@ -8124,9 +8143,10 @@ void GameHandler::handleUpdateObject(network::Packet& packet) {
                             LOG_WARNING("PLAYER_BYTES_2 (CREATE): raw=0x", std::hex, val, std::dec,
                                        " bankBagSlots=", static_cast<int>(bankBagSlots));
                             inventory.setPurchasedBankBagSlots(bankBagSlots);
-                            // Byte 3 (bits 24-31): REST_STATE — bit 0 set means in inn/city
+                            // Byte 3 (bits 24-31): REST_STATE
+                            // 0 = not resting, 1 = REST_TYPE_IN_TAVERN, 2 = REST_TYPE_IN_CITY
                             uint8_t restStateByte = static_cast<uint8_t>((val >> 24) & 0xFF);
-                            isResting_ = (restStateByte & 0x01) != 0;
+                            isResting_ = (restStateByte != 0);
                         }
                         // Do not synthesize quest-log entries from raw update-field slots.
                         // Slot layouts differ on some classic-family realms and can produce
@@ -8435,9 +8455,10 @@ void GameHandler::handleUpdateObject(network::Packet& packet) {
                                 LOG_WARNING("PLAYER_BYTES_2 (VALUES): raw=0x", std::hex, val, std::dec,
                                            " bankBagSlots=", static_cast<int>(bankBagSlots));
                                 inventory.setPurchasedBankBagSlots(bankBagSlots);
-                                // Byte 3 (bits 24-31): REST_STATE — bit 0 set means in inn/city
+                                // Byte 3 (bits 24-31): REST_STATE
+                                // 0 = not resting, 1 = REST_TYPE_IN_TAVERN, 2 = REST_TYPE_IN_CITY
                                 uint8_t restStateByte = static_cast<uint8_t>((val >> 24) & 0xFF);
-                                isResting_ = (restStateByte & 0x01) != 0;
+                                isResting_ = (restStateByte != 0);
                             }
                             else if (key == ufPlayerFlags) {
                                 constexpr uint32_t PLAYER_FLAGS_GHOST = 0x00000010;
