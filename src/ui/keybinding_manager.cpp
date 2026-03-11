@@ -24,6 +24,8 @@ void KeybindingManager::initializeDefaults() {
     bindings_[static_cast<int>(Action::TOGGLE_MINIMAP)] = ImGuiKey_M;
     bindings_[static_cast<int>(Action::TOGGLE_SETTINGS)] = ImGuiKey_Escape;
     bindings_[static_cast<int>(Action::TOGGLE_CHAT)] = ImGuiKey_Enter;
+    bindings_[static_cast<int>(Action::TOGGLE_GUILD_ROSTER)] = ImGuiKey_O;
+    bindings_[static_cast<int>(Action::TOGGLE_DUNGEON_FINDER)] = ImGuiKey_J;  // Originally I, reassigned to avoid conflict
 }
 
 bool KeybindingManager::isActionPressed(Action action, bool repeat) {
@@ -57,6 +59,8 @@ const char* KeybindingManager::getActionName(Action action) {
         case Action::TOGGLE_MINIMAP: return "Minimap";
         case Action::TOGGLE_SETTINGS: return "Settings";
         case Action::TOGGLE_CHAT: return "Chat";
+        case Action::TOGGLE_GUILD_ROSTER: return "Guild Roster / Social";
+        case Action::TOGGLE_DUNGEON_FINDER: return "Dungeon Finder";
         case Action::ACTION_COUNT: break;
     }
     return "Unknown";
@@ -114,6 +118,8 @@ void KeybindingManager::loadFromConfigFile(const std::string& filePath) {
         else if (action == "toggle_minimap") actionIdx = static_cast<int>(Action::TOGGLE_MINIMAP);
         else if (action == "toggle_settings") actionIdx = static_cast<int>(Action::TOGGLE_SETTINGS);
         else if (action == "toggle_chat") actionIdx = static_cast<int>(Action::TOGGLE_CHAT);
+        else if (action == "toggle_guild_roster") actionIdx = static_cast<int>(Action::TOGGLE_GUILD_ROSTER);
+        else if (action == "toggle_dungeon_finder") actionIdx = static_cast<int>(Action::TOGGLE_DUNGEON_FINDER);
 
         if (actionIdx < 0) continue;
 
@@ -198,6 +204,8 @@ void KeybindingManager::saveToConfigFile(const std::string& filePath) const {
         {Action::TOGGLE_MINIMAP, "toggle_minimap"},
         {Action::TOGGLE_SETTINGS, "toggle_settings"},
         {Action::TOGGLE_CHAT, "toggle_chat"},
+        {Action::TOGGLE_GUILD_ROSTER, "toggle_guild_roster"},
+        {Action::TOGGLE_DUNGEON_FINDER, "toggle_dungeon_finder"},
     };
 
     for (const auto& [action, nameStr] : actionMap) {

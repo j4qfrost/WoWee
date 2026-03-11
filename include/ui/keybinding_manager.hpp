@@ -23,6 +23,8 @@ public:
         TOGGLE_MINIMAP,
         TOGGLE_SETTINGS,
         TOGGLE_CHAT,
+        TOGGLE_GUILD_ROSTER,
+        TOGGLE_DUNGEON_FINDER,
         ACTION_COUNT
     };
 

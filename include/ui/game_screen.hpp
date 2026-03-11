@@ -8,6 +8,7 @@
 #include "ui/quest_log_screen.hpp"
 #include "ui/spellbook_screen.hpp"
 #include "ui/talent_screen.hpp"
+#include "ui/keybinding_manager.hpp"
 #include <vulkan/vulkan.h>
 #include <imgui.h>
 #include <string>
@@ -111,6 +112,10 @@ private:
     bool pendingMinimapNpcDots = false;
     bool pendingSeparateBags = true;
     bool pendingAutoLoot = false;
+
+    // Keybinding customization
+    int pendingRebindAction = -1;  // -1 = not rebinding, otherwise action index
+    bool awaitingKeyPress = false;
     bool pendingUseOriginalSoundtrack = true;
     bool pendingShowActionBar2 = true;   // Show second action bar above main bar
     float pendingActionBar2OffsetX = 0.0f;  // Horizontal offset from default center position

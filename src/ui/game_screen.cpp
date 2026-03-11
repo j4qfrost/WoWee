@@ -6402,8 +6402,8 @@ void GameScreen::renderLfgProposalPopup(game::GameHandler& gameHandler) {
 }
 
 void GameScreen::renderGuildRoster(game::GameHandler& gameHandler) {
-    // O key toggle (WoW default Social/Guild keybind)
-    if (!ImGui::GetIO().WantCaptureKeyboard && ImGui::IsKeyPressed(ImGuiKey_O)) {
+    // Guild Roster toggle (customizable keybind)
+    if (!ImGui::GetIO().WantCaptureKeyboard && KeybindingManager::getInstance().isActionPressed(KeybindingManager::Action::TOGGLE_GUILD_ROSTER)) {
         showGuildRoster_ = !showGuildRoster_;
         if (showGuildRoster_) {
             // Open friends tab directly if not in guild
@@ -9181,6 +9181,108 @@ void GameScreen::renderSettingsWindow() {
             }
 
             // ============================================================
+            // CONTROLS TAB
+            // ============================================================
+            if (ImGui::BeginTabItem("Controls")) {
+                ImGui::Spacing();
+
+                ImGui::Text("Keybindings");
+                ImGui::Separator();
+
+                auto& km = ui::KeybindingManager::getInstance();
+                int numActions = km.getActionCount();
+
+                for (int i = 0; i < numActions; ++i) {
+                    auto action = static_cast<ui::KeybindingManager::Action>(i);
+                    const char* actionName = km.getActionName(action);
+                    ImGuiKey currentKey = km.getKeyForAction(action);
+
+                    // Display current binding
+                    ImGui::Text("%s:", actionName);
+                    ImGui::SameLine(200);
+
+                    // Get human-readable key name (basic implementation)
+                    const char* keyName = "Unknown";
+                    if (currentKey >= ImGuiKey_A && currentKey <= ImGuiKey_Z) {
+                        static char keyBuf[16];
+                        snprintf(keyBuf, sizeof(keyBuf), "%c", 'A' + (currentKey - ImGuiKey_A));
+                        keyName = keyBuf;
+                    } else if (currentKey >= ImGuiKey_0 && currentKey <= ImGuiKey_9) {
+                        static char keyBuf[16];
+                        snprintf(keyBuf, sizeof(keyBuf), "%c", '0' + (currentKey - ImGuiKey_0));
+                        keyName = keyBuf;
+                    } else if (currentKey == ImGuiKey_Escape) {
+                        keyName = "Escape";
+                    } else if (currentKey == ImGuiKey_Enter) {
+                        keyName = "Enter";
+                    } else if (currentKey == ImGuiKey_Tab) {
+                        keyName = "Tab";
+                    } else if (currentKey == ImGuiKey_Space) {
+                        keyName = "Space";
+                    } else if (currentKey >= ImGuiKey_F1 && currentKey <= ImGuiKey_F12) {
+                        static char keyBuf[16];
+                        snprintf(keyBuf, sizeof(keyBuf), "F%d", 1 + (currentKey - ImGuiKey_F1));
+                        keyName = keyBuf;
+                    }
+
+                    ImGui::Text("[%s]", keyName);
+
+                    // Rebind button
+                    ImGui::SameLine(350);
+                    if (ImGui::Button(awaitingKeyPress && pendingRebindAction == i ? "Waiting..." : "Rebind", ImVec2(100, 0))) {
+                        pendingRebindAction = i;
+                        awaitingKeyPress = true;
+                    }
+                }
+
+                // Handle key press during rebinding
+                if (awaitingKeyPress && pendingRebindAction >= 0) {
+                    ImGui::Spacing();
+                    ImGui::Separator();
+                    ImGui::Text("Press any key to bind to this action (Esc to cancel)...");
+
+                    // Check for any key press
+                    bool foundKey = false;
+                    ImGuiKey newKey = ImGuiKey_None;
+                    for (int k = ImGuiKey_NamedKey_BEGIN; k < ImGuiKey_NamedKey_END; ++k) {
+                        if (ImGui::IsKeyPressed(static_cast<ImGuiKey>(k), false)) {
+                            if (k == ImGuiKey_Escape) {
+                                // Cancel rebinding
+                                awaitingKeyPress = false;
+                                pendingRebindAction = -1;
+                                foundKey = true;
+                                break;
+                            }
+                            newKey = static_cast<ImGuiKey>(k);
+                            foundKey = true;
+                            break;
+                        }
+                    }
+
+                    if (foundKey && newKey != ImGuiKey_None) {
+                        auto action = static_cast<ui::KeybindingManager::Action>(pendingRebindAction);
+                        km.setKeyForAction(action, newKey);
+                        awaitingKeyPress = false;
+                        pendingRebindAction = -1;
+                        saveSettings();
+                    }
+                }
+
+                ImGui::Spacing();
+                ImGui::Separator();
+                ImGui::Spacing();
+
+                if (ImGui::Button("Reset to Defaults", ImVec2(-1, 0))) {
+                    km.resetToDefaults();
+                    awaitingKeyPress = false;
+                    pendingRebindAction = -1;
+                    saveSettings();
+                }
+
+                ImGui::EndTabItem();
+            }
+
+            // ============================================================
             // CHAT TAB
             // ============================================================
             if (ImGui::BeginTabItem("Chat")) {
@@ -10063,6 +10165,11 @@ void GameScreen::saveSettings() {
     out << "chat_autojoin_lfg=" << (chatAutoJoinLFG_ ? 1 : 0) << "\n";
     out << "chat_autojoin_local=" << (chatAutoJoinLocal_ ? 1 : 0) << "\n";
 
+    out.close();
+
+    // Save keybindings to the same config file (appends [Keybindings] section)
+    KeybindingManager::getInstance().saveToConfigFile(path);
+
     LOG_INFO("Settings saved to ", path);
 }
 
@@ -10176,6 +10283,10 @@ void GameScreen::loadSettings() {
             else if (key == "chat_autojoin_local") chatAutoJoinLocal_ = (std::stoi(val) != 0);
         } catch (...) {}
     }
+
+    // Load keybindings from the same config file
+    KeybindingManager::getInstance().loadFromConfigFile(path);
+
     LOG_INFO("Settings loaded from ", path);
 }
 
@@ -11551,8 +11662,8 @@ void GameScreen::renderZoneText() {
 // Dungeon Finder window (toggle with hotkey or bag-bar button)
 // ---------------------------------------------------------------------------
 void GameScreen::renderDungeonFinderWindow(game::GameHandler& gameHandler) {
-    // Toggle on I key when not typing
-    if (!chatInputActive && ImGui::IsKeyPressed(ImGuiKey_I, false)) {
+    // Toggle Dungeon Finder (customizable keybind)
+    if (!chatInputActive && KeybindingManager::getInstance().isActionPressed(KeybindingManager::Action::TOGGLE_DUNGEON_FINDER)) {
         showDungeonFinder_ = !showDungeonFinder_;
     }
 
