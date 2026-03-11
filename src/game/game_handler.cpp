@@ -3573,9 +3573,16 @@ void GameHandler::handlePacket(network::Packet& packet) {
             uint64_t victimGuid  = packet.readUInt64();
             /*uint8_t envType =*/ packet.readUInt8();
             uint32_t dmg         = packet.readUInt32();
-            /*uint32_t abs =*/    packet.readUInt32();
-            if (victimGuid == playerGuid && dmg > 0)
-                addCombatText(CombatTextEntry::ENVIRONMENTAL, static_cast<int32_t>(dmg), 0, false);
+            uint32_t envAbs      = packet.readUInt32();
+            uint32_t envRes      = packet.readUInt32();
+            if (victimGuid == playerGuid) {
+                if (dmg > 0)
+                    addCombatText(CombatTextEntry::ENVIRONMENTAL, static_cast<int32_t>(dmg), 0, false);
+                if (envAbs > 0)
+                    addCombatText(CombatTextEntry::ABSORB, static_cast<int32_t>(envAbs), 0, false);
+                if (envRes > 0)
+                    addCombatText(CombatTextEntry::RESIST, static_cast<int32_t>(envRes), 0, false);
+            }
             packet.setReadPos(packet.getSize());
             break;
         }
