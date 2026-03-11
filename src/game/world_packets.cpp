@@ -3579,14 +3579,27 @@ bool GroupListParser::parse(network::Packet& packet, GroupListData& data, bool h
 }
 
 bool PartyCommandResultParser::parse(network::Packet& packet, PartyCommandResultData& data) {
+    // Upfront validation: command(4) + name(var) + result(4) = 8 bytes minimum (plus name string)
+    if (packet.getSize() - packet.getReadPos() < 8) return false;
+
     data.command = static_cast<PartyCommand>(packet.readUInt32());
     data.name = packet.readString();
+
+    // Validate result field exists (4 bytes)
+    if (packet.getSize() - packet.getReadPos() < 4) {
+        data.result = static_cast<PartyResult>(0);
+        return true; // Partial read is acceptable
+    }
+
     data.result = static_cast<PartyResult>(packet.readUInt32());
     LOG_DEBUG("Party command result: ", (int)data.result);
     return true;
 }
 
 bool GroupDeclineResponseParser::parse(network::Packet& packet, GroupDeclineData& data) {
+    // Upfront validation: playerName is a CString (minimum 1 null terminator)
+    if (packet.getSize() - packet.getReadPos() < 1) return false;
+
     data.playerName = packet.readString();
     LOG_INFO("Group decline from: ", data.playerName);
     return true;
