@@ -16702,6 +16702,10 @@ void GameHandler::handleNewWorld(network::Packet& packet) {
     entityManager.clear();
     hostileAttackers_.clear();
     worldStates_.clear();
+    // Quest POI markers are map-specific; remove those that don't apply to the new map.
+    // Markers without a questId tag (data==0) are gossip-window POIs — keep them cleared
+    // here since gossipWindowOpen is reset on teleport anyway.
+    gossipPois_.clear();
     worldStateMapId_ = mapId;
     worldStateZoneId_ = 0;
     activeAreaTriggers_.clear();
