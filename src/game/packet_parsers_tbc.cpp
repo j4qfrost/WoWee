@@ -1276,19 +1276,41 @@ bool TbcPacketParsers::parseSpellGo(network::Packet& packet, SpellGoData& data) 
     }
 
     data.hitCount = packet.readUInt8();
+    // Cap hit count to prevent OOM from huge target lists
+    if (data.hitCount > 128) {
+        LOG_WARNING("[TBC] Spell go: hitCount capped (requested=", (int)data.hitCount, ")");
+        data.hitCount = 128;
+    }
     data.hitTargets.reserve(data.hitCount);
     for (uint8_t i = 0; i < data.hitCount && packet.getReadPos() + 8 <= packet.getSize(); ++i) {
         data.hitTargets.push_back(packet.readUInt64());  // full GUID in TBC
     }
+    // Check if we read all expected hits
+    if (data.hitTargets.size() < data.hitCount) {
+        LOG_WARNING("[TBC] Spell go: truncated hit targets at index ", (int)data.hitTargets.size(),
+                    "/", (int)data.hitCount);
+        data.hitCount = data.hitTargets.size();
+    }
 
     if (packet.getReadPos() < packet.getSize()) {
         data.missCount = packet.readUInt8();
+        // Cap miss count to prevent OOM
+        if (data.missCount > 128) {
+            LOG_WARNING("[TBC] Spell go: missCount capped (requested=", (int)data.missCount, ")");
+            data.missCount = 128;
+        }
         data.missTargets.reserve(data.missCount);
         for (uint8_t i = 0; i < data.missCount && packet.getReadPos() + 9 <= packet.getSize(); ++i) {
             SpellGoMissEntry m;
             m.targetGuid = packet.readUInt64();  // full GUID in TBC
             m.missType   = packet.readUInt8();
             data.missTargets.push_back(m);
+        }
+        // Check if we read all expected misses
+        if (data.missTargets.size() < data.missCount) {
+            LOG_WARNING("[TBC] Spell go: truncated miss targets at index ", (int)data.missTargets.size(),
+                        "/", (int)data.missCount);
+            data.missCount = data.missTargets.size();
         }
     }
 
