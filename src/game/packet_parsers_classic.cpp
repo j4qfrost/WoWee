@@ -1755,6 +1755,12 @@ network::Packet ClassicPacketParsers::buildAcceptQuestPacket(uint64_t npcGuid, u
 // ============================================================================
 bool ClassicPacketParsers::parseCreatureQueryResponse(network::Packet& packet,
                                                        CreatureQueryResponseData& data) {
+    // Validate minimum packet size: entry(4)
+    if (packet.getSize() < 4) {
+        LOG_ERROR("Classic SMSG_CREATURE_QUERY_RESPONSE: packet too small (", packet.getSize(), " bytes)");
+        return false;
+    }
+
     data.entry = packet.readUInt32();
     if (data.entry & 0x80000000) {
         data.entry &= ~0x80000000;
@@ -1769,15 +1775,19 @@ bool ClassicPacketParsers::parseCreatureQueryResponse(network::Packet& packet,
     data.subName = packet.readString();
     // NOTE: NO iconName field in Classic 1.12 — goes straight to typeFlags
     if (packet.getReadPos() + 16 > packet.getSize()) {
-        LOG_WARNING("[Classic] Creature query: truncated at typeFlags (entry=", data.entry, ")");
-        return true;
+        LOG_WARNING("Classic SMSG_CREATURE_QUERY_RESPONSE: truncated at typeFlags (entry=", data.entry, ")");
+        data.typeFlags = 0;
+        data.creatureType = 0;
+        data.family = 0;
+        data.rank = 0;
+        return true;  // Have name/sub fields; base fields are important but optional
     }
     data.typeFlags    = packet.readUInt32();
     data.creatureType = packet.readUInt32();
     data.family       = packet.readUInt32();
     data.rank         = packet.readUInt32();
 
-    LOG_DEBUG("[Classic] Creature query: ", data.name, " type=", data.creatureType,
+    LOG_DEBUG("Classic SMSG_CREATURE_QUERY_RESPONSE: ", data.name, " type=", data.creatureType,
               " rank=", data.rank);
     return true;
 }

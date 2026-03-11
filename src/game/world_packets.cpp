@@ -2295,6 +2295,12 @@ network::Packet CreatureQueryPacket::build(uint32_t entry, uint64_t guid) {
 }
 
 bool CreatureQueryResponseParser::parse(network::Packet& packet, CreatureQueryResponseData& data) {
+    // Validate minimum packet size: entry(4)
+    if (packet.getSize() < 4) {
+        LOG_ERROR("SMSG_CREATURE_QUERY_RESPONSE: packet too small (", packet.getSize(), " bytes)");
+        return false;
+    }
+
     data.entry = packet.readUInt32();
 
     // High bit set means creature not found
@@ -2312,6 +2318,18 @@ bool CreatureQueryResponseParser::parse(network::Packet& packet, CreatureQueryRe
     packet.readString(); // name4
     data.subName = packet.readString();
     data.iconName = packet.readString();
+
+    // WotLK: 4 fixed fields after iconName (typeFlags, creatureType, family, rank)
+    // Validate minimum size for these fields: 4×4 = 16 bytes
+    if (packet.getSize() - packet.getReadPos() < 16) {
+        LOG_WARNING("SMSG_CREATURE_QUERY_RESPONSE: truncated before typeFlags (entry=", data.entry, ")");
+        data.typeFlags = 0;
+        data.creatureType = 0;
+        data.family = 0;
+        data.rank = 0;
+        return true;  // Have name/sub/icon; base fields are important but optional
+    }
+
     data.typeFlags = packet.readUInt32();
     data.creatureType = packet.readUInt32();
     data.family = packet.readUInt32();
