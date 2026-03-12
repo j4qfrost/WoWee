@@ -11858,9 +11858,19 @@ void GameScreen::renderAuctionHouseWindow(game::GameHandler& gameHandler) {
                     }
                 }
                 ImGui::TextColored(bqc, "%s", name.c_str());
-                // Tooltip
+                // Tooltip and shift-click
                 if (ImGui::IsItemHovered() && info && info->valid)
                     inventoryScreen.renderItemTooltip(*info);
+                if (ImGui::IsItemHovered() && ImGui::IsMouseClicked(ImGuiMouseButton_Left) &&
+                    ImGui::GetIO().KeyShift && info && info->valid && !info->name.empty()) {
+                    std::string link = buildItemChatLink(info->entry, info->quality, info->name);
+                    size_t curLen = strlen(chatInputBuffer);
+                    if (curLen + link.size() + 1 < sizeof(chatInputBuffer)) {
+                        strncat(chatInputBuffer, link.c_str(), sizeof(chatInputBuffer) - curLen - 1);
+                        chatInputMoveCursorToEnd = true;
+                        refocusChatInput = true;
+                    }
+                }
                 ImGui::TableSetColumnIndex(1);
                 ImGui::Text("%u", a.stackCount);
                 ImGui::TableSetColumnIndex(2);
@@ -11925,6 +11935,16 @@ void GameScreen::renderAuctionHouseWindow(game::GameHandler& gameHandler) {
                 ImGui::TextColored(oqc, "%s", name.c_str());
                 if (ImGui::IsItemHovered() && info && info->valid)
                     inventoryScreen.renderItemTooltip(*info);
+                if (ImGui::IsItemHovered() && ImGui::IsMouseClicked(ImGuiMouseButton_Left) &&
+                    ImGui::GetIO().KeyShift && info && info->valid && !info->name.empty()) {
+                    std::string link = buildItemChatLink(info->entry, info->quality, info->name);
+                    size_t curLen = strlen(chatInputBuffer);
+                    if (curLen + link.size() + 1 < sizeof(chatInputBuffer)) {
+                        strncat(chatInputBuffer, link.c_str(), sizeof(chatInputBuffer) - curLen - 1);
+                        chatInputMoveCursorToEnd = true;
+                        refocusChatInput = true;
+                    }
+                }
                 ImGui::TableSetColumnIndex(1);
                 ImGui::Text("%u", a.stackCount);
                 ImGui::TableSetColumnIndex(2);
