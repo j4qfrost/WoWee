@@ -8404,6 +8404,9 @@ void GameHandler::handleUpdateObject(network::Packet& packet) {
                                     playerSpawnCallback_(block.guid, unit->getDisplayId(), race, gender,
                                                         appearanceBytes, facial,
                                                         unit->getX(), unit->getY(), unit->getZ(), unit->getOrientation());
+                                } else {
+                                    LOG_WARNING("[Spawn] PLAYER guid=0x", std::hex, block.guid, std::dec,
+                                              " displayId=", unit->getDisplayId(), " appearance extraction failed — model will not render");
                                 }
                             }
                         } else if (creatureSpawnCallback_) {
@@ -8800,6 +8803,9 @@ void GameHandler::handleUpdateObject(network::Packet& packet) {
                                         playerSpawnCallback_(block.guid, unit->getDisplayId(), race, gender,
                                                             appearanceBytes, facial,
                                                             unit->getX(), unit->getY(), unit->getZ(), unit->getOrientation());
+                                    } else {
+                                        LOG_WARNING("[Spawn] PLAYER guid=0x", std::hex, block.guid, std::dec,
+                                                  " displayId=", unit->getDisplayId(), " appearance extraction failed (VALUES update) — model will not render");
                                     }
                                 }
                             } else if (creatureSpawnCallback_) {
