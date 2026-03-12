@@ -10654,6 +10654,22 @@ void GameScreen::renderMinimapMarkers(game::GameHandler& gameHandler) {
         }
     }
 
+    // Scroll wheel over minimap → zoom in/out
+    {
+        float wheel = ImGui::GetIO().MouseWheel;
+        if (wheel != 0.0f) {
+            ImVec2 mouse = ImGui::GetMousePos();
+            float mdx = mouse.x - centerX;
+            float mdy = mouse.y - centerY;
+            if (mdx * mdx + mdy * mdy <= mapRadius * mapRadius) {
+                if (wheel > 0.0f)
+                    minimap->zoomIn();
+                else
+                    minimap->zoomOut();
+            }
+        }
+    }
+
     // Ctrl+click on minimap → send minimap ping to party
     if (ImGui::IsMouseClicked(0) && ImGui::GetIO().KeyCtrl) {
         ImVec2 mouse = ImGui::GetMousePos();
