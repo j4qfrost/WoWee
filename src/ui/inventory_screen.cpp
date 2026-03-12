@@ -101,6 +101,14 @@ VkDescriptorSet InventoryScreen::getItemIcon(uint32_t displayInfoId) {
     auto it = iconCache_.find(displayInfoId);
     if (it != iconCache_.end()) return it->second;
 
+    // Rate-limit GPU uploads per frame to avoid stalling when many items appear at once
+    // (e.g., opening a full bag, vendor window, or loot from a boss with many drops).
+    static int iiLoadsThisFrame = 0;
+    static int iiLastImGuiFrame = -1;
+    int iiCurFrame = ImGui::GetFrameCount();
+    if (iiCurFrame != iiLastImGuiFrame) { iiLoadsThisFrame = 0; iiLastImGuiFrame = iiCurFrame; }
+    if (iiLoadsThisFrame >= 4) return VK_NULL_HANDLE;  // defer — do NOT cache null here
+
     // Load ItemDisplayInfo.dbc
     auto displayInfoDbc = assetManager_->loadDBC("ItemDisplayInfo.dbc");
     if (!displayInfoDbc) {
@@ -143,6 +151,7 @@ VkDescriptorSet InventoryScreen::getItemIcon(uint32_t displayInfoId) {
         return VK_NULL_HANDLE;
     }
 
+    ++iiLoadsThisFrame;
     VkDescriptorSet ds = vkCtx->uploadImGuiTexture(image.data.data(), image.width, image.height);
     iconCache_[displayInfoId] = ds;
     return ds;

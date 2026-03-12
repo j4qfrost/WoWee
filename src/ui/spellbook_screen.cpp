@@ -411,6 +411,14 @@ VkDescriptorSet SpellbookScreen::getSpellIcon(uint32_t iconId, pipeline::AssetMa
     auto cit = spellIconCache.find(iconId);
     if (cit != spellIconCache.end()) return cit->second;
 
+    // Rate-limit GPU uploads to avoid a multi-frame stall when switching tabs.
+    // Icons not loaded this frame will be retried next frame (progressive load).
+    static int loadsThisFrame = 0;
+    static int lastImGuiFrame = -1;
+    int curFrame = ImGui::GetFrameCount();
+    if (curFrame != lastImGuiFrame) { loadsThisFrame = 0; lastImGuiFrame = curFrame; }
+    if (loadsThisFrame >= 4) return VK_NULL_HANDLE;  // defer — do NOT cache null here
+
     auto pit = spellIconPaths.find(iconId);
     if (pit == spellIconPaths.end()) {
         spellIconCache[iconId] = VK_NULL_HANDLE;
@@ -437,6 +445,7 @@ VkDescriptorSet SpellbookScreen::getSpellIcon(uint32_t iconId, pipeline::AssetMa
         return VK_NULL_HANDLE;
     }
 
+    ++loadsThisFrame;
     VkDescriptorSet ds = vkCtx->uploadImGuiTexture(image.data.data(), image.width, image.height);
     spellIconCache[iconId] = ds;
     return ds;
