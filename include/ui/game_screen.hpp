@@ -50,6 +50,10 @@ private:
     int lastChatType = 0;  // Track chat type changes
     bool chatInputMoveCursorToEnd = false;
 
+    // Chat sent-message history (Up/Down arrow recall)
+    std::vector<std::string> chatSentHistory_;
+    int chatHistoryIdx_ = -1;  // -1 = not browsing history
+
     // Chat tabs
     int activeChatTab_ = 0;
     struct ChatTab {

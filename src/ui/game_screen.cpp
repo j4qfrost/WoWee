@@ -1541,17 +1541,50 @@ void GameScreen::renderChatWindow(game::GameHandler& gameHandler) {
 
     auto inputCallback = [](ImGuiInputTextCallbackData* data) -> int {
         auto* self = static_cast<GameScreen*>(data->UserData);
-        if (self && self->chatInputMoveCursorToEnd) {
+        if (!self) return 0;
+
+        // Cursor-to-end after channel switch
+        if (self->chatInputMoveCursorToEnd) {
             int len = static_cast<int>(std::strlen(data->Buf));
             data->CursorPos = len;
             data->SelectionStart = len;
             data->SelectionEnd = len;
             self->chatInputMoveCursorToEnd = false;
         }
+
+        // Up/Down arrow: cycle through sent message history
+        if (data->EventFlag == ImGuiInputTextFlags_CallbackHistory) {
+            const int histSize = static_cast<int>(self->chatSentHistory_.size());
+            if (histSize == 0) return 0;
+
+            if (data->EventKey == ImGuiKey_UpArrow) {
+                // Go back in history
+                if (self->chatHistoryIdx_ == -1)
+                    self->chatHistoryIdx_ = histSize - 1;
+                else if (self->chatHistoryIdx_ > 0)
+                    --self->chatHistoryIdx_;
+            } else if (data->EventKey == ImGuiKey_DownArrow) {
+                if (self->chatHistoryIdx_ == -1) return 0;
+                ++self->chatHistoryIdx_;
+                if (self->chatHistoryIdx_ >= histSize) {
+                    self->chatHistoryIdx_ = -1;
+                    data->DeleteChars(0, data->BufTextLen);
+                    return 0;
+                }
+            }
+
+            if (self->chatHistoryIdx_ >= 0 && self->chatHistoryIdx_ < histSize) {
+                const std::string& entry = self->chatSentHistory_[self->chatHistoryIdx_];
+                data->DeleteChars(0, data->BufTextLen);
+                data->InsertChars(0, entry.c_str());
+            }
+        }
         return 0;
     };
 
-    ImGuiInputTextFlags inputFlags = ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_CallbackAlways;
+    ImGuiInputTextFlags inputFlags = ImGuiInputTextFlags_EnterReturnsTrue |
+                                     ImGuiInputTextFlags_CallbackAlways |
+                                     ImGuiInputTextFlags_CallbackHistory;
     if (ImGui::InputText("##ChatInput", chatInputBuffer, sizeof(chatInputBuffer), inputFlags, inputCallback, this)) {
         sendChatMessage(gameHandler);
         // Close chat input on send so movement keys work immediately.
@@ -2786,6 +2819,22 @@ void GameScreen::renderFocusFrame(game::GameHandler& gameHandler) {
 void GameScreen::sendChatMessage(game::GameHandler& gameHandler) {
     if (strlen(chatInputBuffer) > 0) {
         std::string input(chatInputBuffer);
+
+        // Save to sent-message history (skip pure whitespace, cap at 50 entries)
+        {
+            bool allSpace = true;
+            for (char c : input) { if (!std::isspace(static_cast<unsigned char>(c))) { allSpace = false; break; } }
+            if (!allSpace) {
+                // Remove duplicate of last entry if identical
+                if (chatSentHistory_.empty() || chatSentHistory_.back() != input) {
+                    chatSentHistory_.push_back(input);
+                    if (chatSentHistory_.size() > 50)
+                        chatSentHistory_.erase(chatSentHistory_.begin());
+                }
+            }
+        }
+        chatHistoryIdx_ = -1;  // reset browsing position after send
+
         game::ChatType type = game::ChatType::SAY;
         std::string message = input;
         std::string target;
