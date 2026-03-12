@@ -7449,6 +7449,16 @@ void GameScreen::renderQuestDetailsWindow(game::GameHandler& gameHandler) {
             ImGui::TextColored(nameCol, "  %s", label.c_str());
             if (ImGui::IsItemHovered() && info && info->valid)
                 inventoryScreen.renderItemTooltip(*info);
+            if (ImGui::IsItemHovered() && ImGui::IsMouseClicked(ImGuiMouseButton_Left) &&
+                ImGui::GetIO().KeyShift && info && info->valid && !info->name.empty()) {
+                std::string link = buildItemChatLink(info->entry, info->quality, info->name);
+                size_t curLen = strlen(chatInputBuffer);
+                if (curLen + link.size() + 1 < sizeof(chatInputBuffer)) {
+                    strncat(chatInputBuffer, link.c_str(), sizeof(chatInputBuffer) - curLen - 1);
+                    chatInputMoveCursorToEnd = true;
+                    refocusChatInput = true;
+                }
+            }
         };
 
         if (!quest.rewardChoiceItems.empty()) {
@@ -7580,6 +7590,16 @@ void GameScreen::renderQuestRequestItemsWindow(game::GameHandler& gameHandler) {
                 } else {
                     ImGui::TextColored(textCol, "Item %u  %u/%u", item.itemId, have, item.count);
                 }
+                if (ImGui::IsItemHovered() && ImGui::IsMouseClicked(ImGuiMouseButton_Left) &&
+                    ImGui::GetIO().KeyShift && info && info->valid && !info->name.empty()) {
+                    std::string link = buildItemChatLink(info->entry, info->quality, info->name);
+                    size_t curLen = strlen(chatInputBuffer);
+                    if (curLen + link.size() + 1 < sizeof(chatInputBuffer)) {
+                        strncat(chatInputBuffer, link.c_str(), sizeof(chatInputBuffer) - curLen - 1);
+                        chatInputMoveCursorToEnd = true;
+                        refocusChatInput = true;
+                    }
+                }
             }
         }
 
@@ -7702,7 +7722,17 @@ void GameScreen::renderQuestOfferRewardWindow(game::GameHandler& gameHandler) {
                 }
                 ImGui::PushStyleColor(ImGuiCol_Text, qualityColor);
                 if (ImGui::Selectable(label.c_str(), selected, 0, ImVec2(0, 20))) {
-                    selectedChoice = static_cast<int>(i);
+                    if (ImGui::GetIO().KeyShift && info && info->valid && !info->name.empty()) {
+                        std::string link = buildItemChatLink(info->entry, info->quality, info->name);
+                        size_t curLen = strlen(chatInputBuffer);
+                        if (curLen + link.size() + 1 < sizeof(chatInputBuffer)) {
+                            strncat(chatInputBuffer, link.c_str(), sizeof(chatInputBuffer) - curLen - 1);
+                            chatInputMoveCursorToEnd = true;
+                            refocusChatInput = true;
+                        }
+                    } else {
+                        selectedChoice = static_cast<int>(i);
+                    }
                 }
                 ImGui::PopStyleColor();
                 if (ImGui::IsItemHovered()) rewardItemTooltip(item, qualityColor);
@@ -7732,6 +7762,16 @@ void GameScreen::renderQuestOfferRewardWindow(game::GameHandler& gameHandler) {
                 }
                 ImGui::TextColored(qualityColor, "  %s", label.c_str());
                 if (ImGui::IsItemHovered()) rewardItemTooltip(item, qualityColor);
+                if (ImGui::IsItemHovered() && ImGui::IsMouseClicked(ImGuiMouseButton_Left) &&
+                    ImGui::GetIO().KeyShift && info && info->valid && !info->name.empty()) {
+                    std::string link = buildItemChatLink(info->entry, info->quality, info->name);
+                    size_t curLen = strlen(chatInputBuffer);
+                    if (curLen + link.size() + 1 < sizeof(chatInputBuffer)) {
+                        strncat(chatInputBuffer, link.c_str(), sizeof(chatInputBuffer) - curLen - 1);
+                        chatInputMoveCursorToEnd = true;
+                        refocusChatInput = true;
+                    }
+                }
             }
         }
 
@@ -11606,9 +11646,19 @@ void GameScreen::renderAuctionHouseWindow(game::GameHandler& gameHandler) {
                         }
                     }
                     ImGui::TextColored(qc, "%s", name.c_str());
-                    // Item tooltip on hover
+                    // Item tooltip on hover; shift-click to insert chat link
                     if (ImGui::IsItemHovered() && info && info->valid) {
                         inventoryScreen.renderItemTooltip(*info);
+                    }
+                    if (ImGui::IsItemHovered() && ImGui::IsMouseClicked(ImGuiMouseButton_Left) &&
+                        ImGui::GetIO().KeyShift && info && info->valid && !info->name.empty()) {
+                        std::string link = buildItemChatLink(info->entry, info->quality, info->name);
+                        size_t curLen = strlen(chatInputBuffer);
+                        if (curLen + link.size() + 1 < sizeof(chatInputBuffer)) {
+                            strncat(chatInputBuffer, link.c_str(), sizeof(chatInputBuffer) - curLen - 1);
+                            chatInputMoveCursorToEnd = true;
+                            refocusChatInput = true;
+                        }
                     }
 
                     ImGui::TableSetColumnIndex(1);
