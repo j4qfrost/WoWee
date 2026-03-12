@@ -7862,6 +7862,10 @@ void GameScreen::renderVendorWindow(game::GameHandler& gameHandler) {
         if (vendor.items.empty()) {
             ImGui::TextDisabled("This vendor has nothing for sale.");
         } else {
+            ImGui::SetNextItemWidth(-1.0f);
+            ImGui::InputTextWithHint("##VendorSearch", "Search...", vendorSearchFilter_, sizeof(vendorSearchFilter_));
+            ImGui::Spacing();
+
             if (ImGui::BeginTable("VendorTable", 5, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY)) {
                 ImGui::TableSetupColumn("##icon", ImGuiTableColumnFlags_WidthFixed, 22.0f);
                 ImGui::TableSetupColumn("Item", ImGuiTableColumnFlags_WidthStretch);
@@ -7870,14 +7874,30 @@ void GameScreen::renderVendorWindow(game::GameHandler& gameHandler) {
                 ImGui::TableSetupColumn("Buy", ImGuiTableColumnFlags_WidthFixed, 50.0f);
                 ImGui::TableHeadersRow();
 
+                std::string vendorFilter(vendorSearchFilter_);
+                // Lowercase filter for case-insensitive match
+                for (char& c : vendorFilter) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+
                 for (int vi = 0; vi < static_cast<int>(vendor.items.size()); ++vi) {
                     const auto& item = vendor.items[vi];
-                    ImGui::TableNextRow();
-                    ImGui::PushID(vi);
 
                     // Proactively ensure vendor item info is loaded
                     gameHandler.ensureItemInfo(item.itemId);
                     auto* info = gameHandler.getItemInfo(item.itemId);
+
+                    // Apply search filter
+                    if (!vendorFilter.empty()) {
+                        std::string nameLC = info && info->valid ? info->name : ("Item " + std::to_string(item.itemId));
+                        for (char& c : nameLC) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+                        if (nameLC.find(vendorFilter) == std::string::npos) {
+                            ImGui::PushID(vi);
+                            ImGui::PopID();
+                            continue;
+                        }
+                    }
+
+                    ImGui::TableNextRow();
+                    ImGui::PushID(vi);
 
                     // Icon column
                     ImGui::TableSetColumnIndex(0);

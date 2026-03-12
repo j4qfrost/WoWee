@@ -362,6 +362,9 @@ private:
     char mailBodyBuffer_[2048] = "";
     int mailComposeMoney_[3] = {0, 0, 0};  // gold, silver, copper
 
+    // Vendor search filter
+    char vendorSearchFilter_[128] = "";
+
     // Auction house UI state
     char auctionSearchName_[256] = "";
     int auctionLevelMin_ = 0;
