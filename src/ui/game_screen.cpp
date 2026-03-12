@@ -11512,35 +11512,7 @@ void GameScreen::renderAuctionHouseWindow(game::GameHandler& gameHandler) {
                     ImGui::TextColored(qc, "%s", name.c_str());
                     // Item tooltip on hover
                     if (ImGui::IsItemHovered() && info && info->valid) {
-                        ImGui::BeginTooltip();
-                        ImGui::TextColored(qc, "%s", info->name.c_str());
-                        if (info->inventoryType > 0) {
-                            if (!info->subclassName.empty())
-                                ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1), "%s", info->subclassName.c_str());
-                        }
-                        if (info->armor > 0) ImGui::Text("%d Armor", info->armor);
-                        if (info->damageMax > 0.0f && info->delayMs > 0) {
-                            float speed = static_cast<float>(info->delayMs) / 1000.0f;
-                            ImGui::Text("%.0f - %.0f Damage  Speed %.2f", info->damageMin, info->damageMax, speed);
-                        }
-                        ImVec4 green(0.0f, 1.0f, 0.0f, 1.0f);
-                        std::string bonusLine;
-                        auto appendStat = [](std::string& out, int32_t val, const char* n) {
-                            if (val <= 0) return;
-                            if (!out.empty()) out += "  ";
-                            out += "+" + std::to_string(val) + " " + n;
-                        };
-                        appendStat(bonusLine, info->strength, "Str");
-                        appendStat(bonusLine, info->agility, "Agi");
-                        appendStat(bonusLine, info->stamina, "Sta");
-                        appendStat(bonusLine, info->intellect, "Int");
-                        appendStat(bonusLine, info->spirit, "Spi");
-                        if (!bonusLine.empty()) ImGui::TextColored(green, "%s", bonusLine.c_str());
-                        if (info->sellPrice > 0) {
-                            ImGui::TextColored(ImVec4(1, 0.84f, 0, 1), "Sell: %ug %us %uc",
-                                info->sellPrice / 10000, (info->sellPrice / 100) % 100, info->sellPrice % 100);
-                        }
-                        ImGui::EndTooltip();
+                        inventoryScreen.renderItemTooltip(*info);
                     }
 
                     ImGui::TableSetColumnIndex(1);
@@ -11721,29 +11693,8 @@ void GameScreen::renderAuctionHouseWindow(game::GameHandler& gameHandler) {
                 }
                 ImGui::TextColored(bqc, "%s", name.c_str());
                 // Tooltip
-                if (ImGui::IsItemHovered() && info && info->valid) {
-                    ImGui::BeginTooltip();
-                    ImGui::TextColored(bqc, "%s", info->name.c_str());
-                    if (info->armor > 0) ImGui::Text("%d Armor", info->armor);
-                    if (info->damageMax > 0.0f && info->delayMs > 0) {
-                        float speed = static_cast<float>(info->delayMs) / 1000.0f;
-                        ImGui::Text("%.0f - %.0f Damage  Speed %.2f", info->damageMin, info->damageMax, speed);
-                    }
-                    std::string bl;
-                    auto appS = [](std::string& o, int32_t v, const char* n) {
-                        if (v <= 0) return;
-                        if (!o.empty()) o += "  ";
-                        o += "+" + std::to_string(v) + " " + n;
-                    };
-                    appS(bl, info->strength, "Str"); appS(bl, info->agility, "Agi");
-                    appS(bl, info->stamina, "Sta"); appS(bl, info->intellect, "Int");
-                    appS(bl, info->spirit, "Spi");
-                    if (!bl.empty()) ImGui::TextColored(ImVec4(0,1,0,1), "%s", bl.c_str());
-                    if (info->sellPrice > 0)
-                        ImGui::TextColored(ImVec4(1,0.84f,0,1), "Sell: %ug %us %uc",
-                            info->sellPrice/10000, (info->sellPrice/100)%100, info->sellPrice%100);
-                    ImGui::EndTooltip();
-                }
+                if (ImGui::IsItemHovered() && info && info->valid)
+                    inventoryScreen.renderItemTooltip(*info);
                 ImGui::TableSetColumnIndex(1);
                 ImGui::Text("%u", a.stackCount);
                 ImGui::TableSetColumnIndex(2);
@@ -11806,29 +11757,8 @@ void GameScreen::renderAuctionHouseWindow(game::GameHandler& gameHandler) {
                     }
                 }
                 ImGui::TextColored(oqc, "%s", name.c_str());
-                if (ImGui::IsItemHovered() && info && info->valid) {
-                    ImGui::BeginTooltip();
-                    ImGui::TextColored(oqc, "%s", info->name.c_str());
-                    if (info->armor > 0) ImGui::Text("%d Armor", info->armor);
-                    if (info->damageMax > 0.0f && info->delayMs > 0) {
-                        float speed = static_cast<float>(info->delayMs) / 1000.0f;
-                        ImGui::Text("%.0f - %.0f Damage  Speed %.2f", info->damageMin, info->damageMax, speed);
-                    }
-                    std::string ol;
-                    auto appO = [](std::string& o, int32_t v, const char* n) {
-                        if (v <= 0) return;
-                        if (!o.empty()) o += "  ";
-                        o += "+" + std::to_string(v) + " " + n;
-                    };
-                    appO(ol, info->strength, "Str"); appO(ol, info->agility, "Agi");
-                    appO(ol, info->stamina, "Sta"); appO(ol, info->intellect, "Int");
-                    appO(ol, info->spirit, "Spi");
-                    if (!ol.empty()) ImGui::TextColored(ImVec4(0,1,0,1), "%s", ol.c_str());
-                    if (info->sellPrice > 0)
-                        ImGui::TextColored(ImVec4(1,0.84f,0,1), "Sell: %ug %us %uc",
-                            info->sellPrice/10000, (info->sellPrice/100)%100, info->sellPrice%100);
-                    ImGui::EndTooltip();
-                }
+                if (ImGui::IsItemHovered() && info && info->valid)
+                    inventoryScreen.renderItemTooltip(*info);
                 ImGui::TableSetColumnIndex(1);
                 ImGui::Text("%u", a.stackCount);
                 ImGui::TableSetColumnIndex(2);
