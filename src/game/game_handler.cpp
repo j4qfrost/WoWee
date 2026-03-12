@@ -4491,6 +4491,7 @@ void GameHandler::handlePacket(network::Packet& packet) {
             }
             if (currentQuestDetails.questId == questId) {
                 questDetailsOpen = false;
+                questDetailsOpenTime = std::chrono::steady_clock::time_point{};
                 currentQuestDetails = QuestDetailsData{};
                 removed = true;
             }
@@ -15351,10 +15352,11 @@ void GameHandler::handleQuestDetails(network::Packet& packet) {
         break;
     }
     // Pre-fetch item info for all reward items so icons and names are ready
-    // by the time the offer-reward dialog opens (after the player turns in).
+    // both in this details window and later in the offer-reward dialog (after the player turns in).
     for (const auto& item : data.rewardChoiceItems) queryItemInfo(item.itemId, 0);
     for (const auto& item : data.rewardItems)       queryItemInfo(item.itemId, 0);
-    questDetailsOpen = true;
+    // Delay opening the window slightly to allow item queries to complete
+    questDetailsOpenTime = std::chrono::steady_clock::now() + std::chrono::milliseconds(100);
     gossipWindowOpen = false;
 }
 
@@ -15604,6 +15606,7 @@ void GameHandler::acceptQuest() {
         LOG_DEBUG("Ignoring duplicate quest accept while pending: questId=", questId);
         triggerQuestAcceptResync(questId, npcGuid, "duplicate-accept");
         questDetailsOpen = false;
+        questDetailsOpenTime = std::chrono::steady_clock::time_point{};
         currentQuestDetails = QuestDetailsData{};
         return;
     }
@@ -15613,6 +15616,7 @@ void GameHandler::acceptQuest() {
         LOG_INFO("Ignoring duplicate quest accept already in server quest log: questId=", questId,
                  " slot=", serverSlot);
         questDetailsOpen = false;
+        questDetailsOpenTime = std::chrono::steady_clock::time_point{};
         currentQuestDetails = QuestDetailsData{};
         return;
     }
@@ -15629,6 +15633,7 @@ void GameHandler::acceptQuest() {
     pendingQuestAcceptNpcGuids_[questId] = npcGuid;
 
     questDetailsOpen = false;
+    questDetailsOpenTime = std::chrono::steady_clock::time_point{};
     currentQuestDetails = QuestDetailsData{};
 
     // Re-query quest giver status so marker updates (! → ?)
@@ -15641,6 +15646,7 @@ void GameHandler::acceptQuest() {
 
 void GameHandler::declineQuest() {
     questDetailsOpen = false;
+    questDetailsOpenTime = std::chrono::steady_clock::time_point{};
     currentQuestDetails = QuestDetailsData{};
 }
 
@@ -15707,6 +15713,7 @@ void GameHandler::handleQuestRequestItems(network::Packet& packet) {
     questRequestItemsOpen_ = true;
     gossipWindowOpen = false;
     questDetailsOpen = false;
+    questDetailsOpenTime = std::chrono::steady_clock::time_point{};
 
     // Query item names for required items
     for (const auto& item : data.requiredItems) {
@@ -15763,6 +15770,7 @@ void GameHandler::handleQuestOfferReward(network::Packet& packet) {
     questRequestItemsOpen_ = false;
     gossipWindowOpen = false;
     questDetailsOpen = false;
+    questDetailsOpenTime = std::chrono::steady_clock::time_point{};
 
     // Query item names for reward items
     for (const auto& item : data.choiceRewards)

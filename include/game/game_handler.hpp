@@ -1068,7 +1068,18 @@ public:
     void closeGossip();
     bool isGossipWindowOpen() const { return gossipWindowOpen; }
     const GossipMessageData& getCurrentGossip() const { return currentGossip; }
-    bool isQuestDetailsOpen() const { return questDetailsOpen; }
+    bool isQuestDetailsOpen() {
+        // Check if delayed opening timer has expired
+        if (questDetailsOpen) return true;
+        if (questDetailsOpenTime != std::chrono::steady_clock::time_point{}) {
+            if (std::chrono::steady_clock::now() >= questDetailsOpenTime) {
+                questDetailsOpen = true;
+                questDetailsOpenTime = std::chrono::steady_clock::time_point{};
+                return true;
+            }
+        }
+        return false;
+    }
     const QuestDetailsData& getQuestDetails() const { return currentQuestDetails; }
 
     // Gossip / quest map POI markers (SMSG_GOSSIP_POI)
@@ -2184,6 +2195,7 @@ private:
 
     // Quest details
     bool questDetailsOpen = false;
+    std::chrono::steady_clock::time_point questDetailsOpenTime{};  // Delayed opening to allow item data to load
     QuestDetailsData currentQuestDetails;
 
     // Quest turn-in
