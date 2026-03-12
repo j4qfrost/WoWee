@@ -11336,6 +11336,24 @@ void GameScreen::renderBankWindow(game::GameHandler& gameHandler) {
                     ImGui::TextColored(qc, "%s", item.name.c_str());
                     ImGui::EndTooltip();
                 }
+
+                // Shift-click to insert item link into chat
+                if (ImGui::IsMouseClicked(ImGuiMouseButton_Left) && ImGui::GetIO().KeyShift
+                    && !item.name.empty()) {
+                    auto* info2 = gameHandler.getItemInfo(item.itemId);
+                    uint8_t q = (info2 && info2->valid)
+                        ? static_cast<uint8_t>(info2->quality)
+                        : static_cast<uint8_t>(item.quality);
+                    const std::string& lname = (info2 && info2->valid && !info2->name.empty())
+                        ? info2->name : item.name;
+                    std::string link = buildItemChatLink(item.itemId, q, lname);
+                    size_t curLen = strlen(chatInputBuffer);
+                    if (curLen + link.size() + 1 < sizeof(chatInputBuffer)) {
+                        strncat(chatInputBuffer, link.c_str(), sizeof(chatInputBuffer) - curLen - 1);
+                        chatInputMoveCursorToEnd = true;
+                        refocusChatInput = true;
+                    }
+                }
             }
         }
     };
@@ -11503,11 +11521,25 @@ void GameScreen::renderGuildBankWindow(game::GameHandler& gameHandler) {
             }
 
             ImGui::InvisibleButton("##gbslot", ImVec2(GB_SLOT, GB_SLOT));
-            if (ImGui::IsItemClicked(ImGuiMouseButton_Left)) {
+            if (ImGui::IsItemClicked(ImGuiMouseButton_Left) && !ImGui::GetIO().KeyShift) {
                 gameHandler.guildBankWithdrawItem(activeTab, item.slotId, 0xFF, 0);
             }
-            if (ImGui::IsItemHovered() && info && info->valid)
-                inventoryScreen.renderItemTooltip(*info);
+            if (ImGui::IsItemHovered()) {
+                if (info && info->valid)
+                    inventoryScreen.renderItemTooltip(*info);
+                // Shift-click to insert item link into chat
+                if (ImGui::IsMouseClicked(ImGuiMouseButton_Left) && ImGui::GetIO().KeyShift
+                    && !name.empty() && item.itemEntry != 0) {
+                    uint8_t q = static_cast<uint8_t>(quality);
+                    std::string link = buildItemChatLink(item.itemEntry, q, name);
+                    size_t curLen = strlen(chatInputBuffer);
+                    if (curLen + link.size() + 1 < sizeof(chatInputBuffer)) {
+                        strncat(chatInputBuffer, link.c_str(), sizeof(chatInputBuffer) - curLen - 1);
+                        chatInputMoveCursorToEnd = true;
+                        refocusChatInput = true;
+                    }
+                }
+            }
         }
         ImGui::PopID();
     }
