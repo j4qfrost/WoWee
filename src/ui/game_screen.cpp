@@ -7756,6 +7756,8 @@ void GameScreen::renderVendorWindow(game::GameHandler& gameHandler) {
                 // Show only the most recently sold item (LIFO).
                 const int i = 0;
                 const auto& entry = buyback[0];
+                // Proactively ensure buyback item info is loaded
+                gameHandler.ensureItemInfo(entry.item.itemId);
                 uint32_t sellPrice = entry.item.sellPrice;
                 if (sellPrice == 0) {
                     if (auto* info = gameHandler.getItemInfo(entry.item.itemId); info && info->valid) {
@@ -7818,6 +7820,9 @@ void GameScreen::renderVendorWindow(game::GameHandler& gameHandler) {
                     const auto& item = vendor.items[vi];
                     ImGui::TableNextRow();
                     ImGui::PushID(vi);
+
+                    // Proactively ensure vendor item info is loaded
+                    gameHandler.ensureItemInfo(item.itemId);
 
                     ImGui::TableSetColumnIndex(0);
                     auto* info = gameHandler.getItemInfo(item.itemId);
