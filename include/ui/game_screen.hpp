@@ -72,6 +72,8 @@ private:
     float nameplateScale_ = 1.0f; // Scale multiplier for nameplate bar dimensions
     uint32_t lastPlayerHp_ = 0;   // Previous frame HP for damage flash detection
     float damageFlashAlpha_ = 0.0f; // Screen edge flash intensity (fades to 0)
+    float levelUpFlashAlpha_ = 0.0f; // Golden level-up burst effect (fades to 0)
+    uint32_t levelUpDisplayLevel_ = 0; // Level shown in level-up text
     bool showPlayerInfo = false;
     bool showSocialFrame_ = false;  // O key toggles social/friends list
     bool showGuildRoster_ = false;
@@ -364,6 +366,7 @@ private:
     };
     std::vector<ChatBubble> chatBubbles_;
     bool chatBubbleCallbackSet_ = false;
+    bool levelUpCallbackSet_ = false;
 
     // Mail compose state
     char mailRecipientBuffer_[256] = "";

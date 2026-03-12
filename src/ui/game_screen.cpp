@@ -209,6 +209,15 @@ void GameScreen::render(game::GameHandler& gameHandler) {
         chatBubbleCallbackSet_ = true;
     }
 
+    // Set up level-up callback (once)
+    if (!levelUpCallbackSet_) {
+        gameHandler.setLevelUpCallback([this](uint32_t newLevel) {
+            levelUpFlashAlpha_ = 1.0f;
+            levelUpDisplayLevel_ = newLevel;
+        });
+        levelUpCallbackSet_ = true;
+    }
+
     // Apply UI transparency setting
     float prevAlpha = ImGui::GetStyle().Alpha;
     ImGui::GetStyle().Alpha = uiOpacity_;
@@ -697,6 +706,43 @@ void GameScreen::render(game::GameHandler& gameHandler) {
             // Right
             fg->AddRectFilledMultiColor(ImVec2(W - thickness, 0), ImVec2(W, H),
                                         fadeCol, edgeCol, edgeCol, fadeCol);
+        }
+    }
+
+    // Level-up golden burst overlay
+    if (levelUpFlashAlpha_ > 0.0f) {
+        levelUpFlashAlpha_ -= ImGui::GetIO().DeltaTime * 1.0f;  // fade over ~1 second
+        if (levelUpFlashAlpha_ < 0.0f) levelUpFlashAlpha_ = 0.0f;
+
+        ImDrawList* fg = ImGui::GetForegroundDrawList();
+        ImGuiIO& io = ImGui::GetIO();
+        const float W = io.DisplaySize.x;
+        const float H = io.DisplaySize.y;
+        const int alpha = static_cast<int>(levelUpFlashAlpha_ * 160.0f);
+        const ImU32 goldEdge = IM_COL32(255, 210, 50, alpha);
+        const ImU32 goldFade = IM_COL32(255, 210, 50, 0);
+        const float thickness = std::min(W, H) * 0.18f;
+
+        // Four golden gradient edges
+        fg->AddRectFilledMultiColor(ImVec2(0, 0), ImVec2(W, thickness),
+                                    goldEdge, goldEdge, goldFade, goldFade);
+        fg->AddRectFilledMultiColor(ImVec2(0, H - thickness), ImVec2(W, H),
+                                    goldFade, goldFade, goldEdge, goldEdge);
+        fg->AddRectFilledMultiColor(ImVec2(0, 0), ImVec2(thickness, H),
+                                    goldEdge, goldFade, goldFade, goldEdge);
+        fg->AddRectFilledMultiColor(ImVec2(W - thickness, 0), ImVec2(W, H),
+                                    goldFade, goldEdge, goldEdge, goldFade);
+
+        // "Level X!" text in the center during the first half of the animation
+        if (levelUpFlashAlpha_ > 0.5f && levelUpDisplayLevel_ > 0) {
+            char lvlText[32];
+            snprintf(lvlText, sizeof(lvlText), "Level %u!", levelUpDisplayLevel_);
+            ImVec2 ts = ImGui::CalcTextSize(lvlText);
+            float tx = (W - ts.x) * 0.5f;
+            float ty = H * 0.35f;
+            // Large shadow + bright gold text
+            fg->AddText(nullptr, 28.0f, ImVec2(tx + 2, ty + 2), IM_COL32(0, 0, 0, alpha), lvlText);
+            fg->AddText(nullptr, 28.0f, ImVec2(tx, ty), IM_COL32(255, 230, 80, alpha), lvlText);
         }
     }
 
