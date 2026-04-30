@@ -1,0 +1,22 @@
+when:
+  - event: pull_request
+  - event: push
+    branch: main
+
+# Native C++ Vulkan client. Full builds are heavy (Vulkan SDK, FidelityFX,
+# optional Unicorn / StormLib) — CI runs the configure step only as a
+# sanity check that CMake's logic isn't broken. Promote to a real build
+# once a beefier agent (or GPU agent) joins the Woodpecker pool.
+
+steps:
+  configure:
+    image: ubuntu:24.04
+    commands:
+      - apt-get update
+      - DEBIAN_FRONTEND=noninteractive apt-get install -y
+        cmake build-essential git pkg-config
+        libsdl2-dev libglew-dev libglm-dev libssl-dev zlib1g-dev
+        libvulkan-dev vulkan-tools glslc
+        libavcodec-dev libavformat-dev libavutil-dev libswscale-dev
+      - git submodule update --init --recursive
+      - cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DUSE_UNICORN=OFF -DUSE_STORMLIB=OFF
