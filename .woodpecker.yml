@@ -1,7 +1,7 @@
 when:
   - event: pull_request
   - event: push
-    branch: main
+    branch: master
 
 # Native C++ Vulkan client. Full builds are heavy (Vulkan SDK, FidelityFX,
 # optional Unicorn / StormLib) — CI runs the configure step only as a
