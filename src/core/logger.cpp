@@ -56,9 +56,18 @@ void Logger::ensureFile() {
         else if (std::ranges::equal(v, "error"sv)) setLogLevel(kLogLevelError);
         else if (std::ranges::equal(v, "fatal"sv)) setLogLevel(LogLevel::FATAL);
     }
+    std::string logFile = "logs/wowee.log";
+    if (const char* logFileEnv = std::getenv("WOWEE_LOG_FILE")) {
+        if (logFileEnv[0] != '\0') {
+            logFile = logFileEnv;
+        }
+    }
     std::error_code ec;
-    std::filesystem::create_directories("logs", ec);
-    fileStream.open("logs/wowee.log", std::ios::out | std::ios::trunc);
+    std::filesystem::path logPath(logFile);
+    if (logPath.has_parent_path()) {
+        std::filesystem::create_directories(logPath.parent_path(), ec);
+    }
+    fileStream.open(logFile, std::ios::out | std::ios::trunc);
     lastFlushTime_ = std::chrono::steady_clock::now();
 }
 
