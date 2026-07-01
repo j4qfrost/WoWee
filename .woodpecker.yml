@@ -1,12 +1,32 @@
 when:
   - event: pull_request
   - event: push
-    branch: main
+    branch: master
 
 # Native C++ Vulkan client. Full builds are heavy (Vulkan SDK, FidelityFX,
 # optional Unicorn / StormLib) — CI runs the configure step only as a
 # sanity check that CMake's logic isn't broken. Promote to a real build
 # once a beefier agent (or GPU agent) joins the Woodpecker pool.
+
+
+# Override the default clone step to use docker-internal Forgejo URL.
+# Woodpecker rewrites repos.clone back to the public Tailscale-Serve URL on
+# every webhook resync, and that URL isn't reachable from inside the docker
+# bridge step containers run on. Auth uses the forgejo_user / forgejo_token
+# global secrets (~/.git-credentials-snowman → Woodpecker secrets via API).
+clone:
+  git:
+    image: alpine/git
+    environment:
+      FORGEJO_USER:
+        from_secret: forgejo_user
+      FORGEJO_TOKEN:
+        from_secret: forgejo_token
+    commands:
+      - git init -b "${CI_COMMIT_BRANCH:-main}"
+      - 'git remote add origin "http://$$FORGEJO_USER:$$FORGEJO_TOKEN@forgejo:3000/${CI_REPO}.git"'
+      - 'git fetch --depth=1 origin "$$CI_COMMIT_SHA"'
+      - git checkout FETCH_HEAD
 
 steps:
   configure:
