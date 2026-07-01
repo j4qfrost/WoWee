@@ -276,6 +276,19 @@ make -j$(nproc)
 | F1 | Performance HUD |
 | F4 | Toggle shadows |
 
+## Runtime Environment Variables
+
+These override built-in defaults at runtime; behavior is unchanged when they are unset.
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `WOWEE_AUTH_HOST` | `localhost` | Initial auth-server hostname pre-filled in the login UI. |
+| `WOWEE_AUTH_PORT` | `3724` | Initial auth-server port pre-filled in the login UI (1–65535). |
+| `WOWEE_LOG_FILE` | `logs/wowee.log` | Log file path; parent directories are created if needed. |
+| `WOWEE_DNS_PROBE_SERVER` | `1.1.1.1` | IPv4 address used to discover the local outbound IP (no DNS query is sent). |
+
+Logging also honors `WOWEE_LOG_LEVEL`, `WOWEE_LOG_STDOUT`, `WOWEE_LOG_FLUSH_MS`, `WOWEE_LOG_DEDUPE`, and `WOWEE_LOG_DEDUPE_MS`.
+
 ## Documentation
 
 ### Getting Started

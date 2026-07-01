@@ -51,6 +51,21 @@ static std::vector<uint8_t> hexDecode(const std::string& hex) {
 }
 
 AuthScreen::AuthScreen() {
+    // Default connection target. Falls back to the historical localhost:3724
+    // when the environment overrides are unset, preserving prior behavior.
+    if (const char* hostEnv = std::getenv("WOWEE_AUTH_HOST")) {
+        if (hostEnv[0] != '\0') {
+            std::snprintf(hostname, sizeof(hostname), "%s", hostEnv);
+            hostname[sizeof(hostname) - 1] = '\0';
+        }
+    }
+    if (const char* portEnv = std::getenv("WOWEE_AUTH_PORT")) {
+        char* end = nullptr;
+        unsigned long parsed = std::strtoul(portEnv, &end, 10);
+        if (end != portEnv && parsed > 0 && parsed <= 65535ul) {
+            port = static_cast<int>(parsed);
+        }
+    }
 }
 
 std::string AuthScreen::makeServerKey(const std::string& host, int port) {

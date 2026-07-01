@@ -3,6 +3,7 @@
 #include "network/net_platform.hpp"
 #include <algorithm>
 #include <cctype>
+#include <cstdlib>
 #include <cstring>
 #include <array>
 
@@ -10,6 +11,10 @@ namespace wowee {
 namespace auth {
 
 namespace {
+// Standard DNS port (RFC 1035). Used only to seed a non-routed UDP "connect"
+// for local outbound-IP discovery; no DNS query is actually sent.
+constexpr uint16_t DNS_PORT = 53;
+
 bool detectOutboundIPv4(std::array<uint8_t, 4>& outIp) {
     net::ensureInit();
 
@@ -18,10 +23,18 @@ bool detectOutboundIPv4(std::array<uint8_t, 4>& outIp) {
         return false;
     }
 
+    // Default to Cloudflare DNS; overridable for environments that block it.
+    const char* probeServer = "1.1.1.1";
+    if (const char* probeEnv = std::getenv("WOWEE_DNS_PROBE_SERVER")) {
+        if (probeEnv[0] != '\0') {
+            probeServer = probeEnv;
+        }
+    }
+
     sockaddr_in remote{};
     remote.sin_family = AF_INET;
-    remote.sin_port = htons(53);
-    if (inet_pton(AF_INET, "1.1.1.1", &remote.sin_addr) != 1) {
+    remote.sin_port = htons(DNS_PORT);
+    if (inet_pton(AF_INET, probeServer, &remote.sin_addr) != 1) {
         net::closeSocket(s);
         return false;
     }
